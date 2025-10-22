@@ -12,6 +12,9 @@ data/*.json
 checkpoints/
 models/*.pt
 
+# External repository (not tracked as submodule)
+dataset/
+
 # Keep test data
 !data/*_test.pt
 
