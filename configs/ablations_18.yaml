@@ -1,0 +1,170 @@
+# 18 Ablation Study Configurations
+# Kernel × Channels × GRU = 2 × 3 × 3 = 18 models
+
+# Kernel 3x3, Channels 16
+k3_c16_gru8:
+  kernel_size: 3
+  cnn_channels: 16
+  gru_hidden: 8
+  batch_size: 64
+  epochs: 100
+  lr: 0.001
+  save_every: 10
+
+k3_c16_gru32:
+  kernel_size: 3
+  cnn_channels: 16
+  gru_hidden: 32
+  batch_size: 64
+  epochs: 100
+  lr: 0.001
+  save_every: 10
+
+k3_c16_gru128:
+  kernel_size: 3
+  cnn_channels: 16
+  gru_hidden: 128
+  batch_size: 64
+  epochs: 100
+  lr: 0.001
+  save_every: 10
+
+# Kernel 3x3, Channels 64
+k3_c64_gru8:
+  kernel_size: 3
+  cnn_channels: 64
+  gru_hidden: 8
+  batch_size: 64
+  epochs: 100
+  lr: 0.001
+  save_every: 10
+
+k3_c64_gru32:
+  kernel_size: 3
+  cnn_channels: 64
+  gru_hidden: 32
+  batch_size: 64
+  epochs: 100
+  lr: 0.001
+  save_every: 10
+
+k3_c64_gru128:
+  kernel_size: 3
+  cnn_channels: 64
+  gru_hidden: 128
+  batch_size: 64
+  epochs: 100
+  lr: 0.001
+  save_every: 10
+
+# Kernel 3x3, Channels 256
+k3_c256_gru8:
+  kernel_size: 3
+  cnn_channels: 256
+  gru_hidden: 8
+  batch_size: 64
+  epochs: 100
+  lr: 0.001
+  save_every: 10
+
+k3_c256_gru32:
+  kernel_size: 3
+  cnn_channels: 256
+  gru_hidden: 32
+  batch_size: 64
+  epochs: 100
+  lr: 0.001
+  save_every: 10
+
+k3_c256_gru128:
+  kernel_size: 3
+  cnn_channels: 256
+  gru_hidden: 128
+  batch_size: 32  # Smaller batch for larger model
+  epochs: 100
+  lr: 0.001
+  save_every: 10
+
+# Kernel 6x6, Channels 16
+k6_c16_gru8:
+  kernel_size: 6
+  cnn_channels: 16
+  gru_hidden: 8
+  batch_size: 64
+  epochs: 100
+  lr: 0.001
+  save_every: 10
+
+k6_c16_gru32:
+  kernel_size: 6
+  cnn_channels: 16
+  gru_hidden: 32
+  batch_size: 64
+  epochs: 100
+  lr: 0.001
+  save_every: 10
+
+k6_c16_gru128:
+  kernel_size: 6
+  cnn_channels: 16
+  gru_hidden: 128
+  batch_size: 64
+  epochs: 100
+  lr: 0.001
+  save_every: 10
+
+# Kernel 6x6, Channels 64
+k6_c64_gru8:
+  kernel_size: 6
+  cnn_channels: 64
+  gru_hidden: 8
+  batch_size: 64
+  epochs: 100
+  lr: 0.001
+  save_every: 10
+
+k6_c64_gru32:
+  kernel_size: 6
+  cnn_channels: 64
+  gru_hidden: 32
+  batch_size: 64
+  epochs: 100
+  lr: 0.001
+  save_every: 10
+
+k6_c64_gru128:
+  kernel_size: 6
+  cnn_channels: 64
+  gru_hidden: 128
+  batch_size: 64
+  epochs: 100
+  lr: 0.001
+  save_every: 10
+
+# Kernel 6x6, Channels 256
+k6_c256_gru8:
+  kernel_size: 6
+  cnn_channels: 256
+  gru_hidden: 8
+  batch_size: 64
+  epochs: 100
+  lr: 0.001
+  save_every: 10
+
+k6_c256_gru32:
+  kernel_size: 6
+  cnn_channels: 256
+  gru_hidden: 32
+  batch_size: 32  # Smaller batch for larger model
+  epochs: 100
+  lr: 0.001
+  save_every: 10
+
+k6_c256_gru128:
+  kernel_size: 6
+  cnn_channels: 256
+  gru_hidden: 128
+  batch_size: 32  # Smaller batch for larger model
+  epochs: 100
+  lr: 0.001
+  save_every: 10
