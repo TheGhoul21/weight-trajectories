@@ -1,0 +1,13 @@
+[project]
+name = "weight-trajectories"
+version = "0.1.0"
+description = "Training and analysis utilities for Connect-4 weight trajectories"
+requires-python = ">=3.9,<3.13"
+dependencies = [
+    "torch>=2.2.0",
+    "numpy>=1.24",
+    "matplotlib>=3.7",
+    "pyyaml>=6.0",
+    "tqdm>=4.65",
+    "phate>=1.0.10",
+]
