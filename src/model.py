@@ -48,7 +48,8 @@ class ResNetGRUConnect4(nn.Module):
         self.gru = nn.GRU(
             input_size=self.feature_size,
             hidden_size=gru_hidden_size,
-            batch_first=True
+            batch_first=True,
+            # dropout=0.5,
         )
 
         # Policy head: predicts move probabilities (7 columns)
