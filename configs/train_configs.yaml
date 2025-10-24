@@ -1,5 +1,8 @@
 # Training configurations for different model sizes
 # Run with: python src/train.py --config configs/train_configs.yaml --model small
+# Override the dataset with --data if you want a different .pt file.
+
+data: data/connect4_10k_games.pt
 
 small:
   cnn_channels: [16, 64, 256]
@@ -24,6 +27,13 @@ large:
   epochs: 100
   lr: 0.001
   save_every: 10
+
+# Aggregate profile that runs small, medium, and large sequentially
+all:
+  includes:
+    - small
+    - medium
+    - large
 
 # For quick testing
 test:

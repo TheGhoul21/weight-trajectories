@@ -5,6 +5,7 @@ Reads board states and predicts policy (moves) and value (win probability)
 
 import torch
 import torch.nn as nn
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 
 class ResNetGRUConnect4(nn.Module):
@@ -78,44 +79,76 @@ class ResNetGRUConnect4(nn.Module):
             nn.ReLU()
         )
 
-    def forward(self, x, hidden=None):
+    def forward(self, x, lengths=None, hidden=None):
         """
         Forward pass
 
         Args:
-            x: (batch, 3, 6, 7) board states
+            x: Either (batch, 3, 6, 7) or (batch, seq_len, 3, 6, 7)
+            lengths: Optional lengths tensor for packed GRU execution
             hidden: Optional GRU hidden state (for sequential prediction)
 
         Returns:
-            policy_logits: (batch, 7) raw logits for moves
-            value: (batch, 1) win probability in [-1, 1]
+            policy_logits: (batch, seq_len, 7) or (batch, 7)
+            value: (batch, seq_len, 1) or (batch, 1)
             hidden: GRU hidden state
         """
-        batch_size = x.shape[0]
+        single_timestep_input = False
 
-        # Extract features with ResNet
-        features = self.resnet(x)  # (batch, channels, 6, 7)
+        if x.dim() == 4:
+            # Backward-compatibility path: treat as single timestep sequence
+            single_timestep_input = True
+            batch_size = x.shape[0]
+            x = x.unsqueeze(1)
+            lengths = None
+        elif x.dim() == 5:
+            batch_size = x.shape[0]
+        else:
+            raise ValueError("Expected input of shape (batch, 3, 6, 7) or (batch, seq_len, 3, 6, 7)")
 
-        # Flatten for GRU
-        features_flat = features.view(batch_size, -1)  # (batch, feature_size)
+        seq_len = x.shape[1]
 
-        # Add sequence dimension for GRU (treat each position as single timestep)
-        features_seq = features_flat.unsqueeze(1)  # (batch, 1, feature_size)
+        # Merge batch and time dimensions for CNN processing
+        x_reshaped = x.view(batch_size * seq_len, 3, 6, 7)
+        features = self.resnet(x_reshaped)  # (batch * seq, channels, 6, 7)
+        features_flat = features.view(batch_size, seq_len, -1)
 
-        # GRU processing
-        gru_out, hidden = self.gru(features_seq, hidden)  # (batch, 1, gru_hidden)
-        gru_out = gru_out.squeeze(1)  # (batch, gru_hidden)
+        # Optional packed GRU to skip padded timesteps
+        if lengths is not None:
+            packed = pack_padded_sequence(
+                features_flat,
+                lengths.cpu(),
+                batch_first=True,
+                enforce_sorted=False
+            )
+            packed_out, hidden = self.gru(packed, hidden)
+            gru_out, _ = pad_packed_sequence(
+                packed_out,
+                batch_first=True,
+                total_length=seq_len
+            )
+        else:
+            gru_out, hidden = self.gru(features_flat, hidden)
 
-        # Prediction heads
-        policy_logits = self.policy_head(gru_out)  # (batch, 7)
-        value = self.value_head(gru_out)  # (batch, 1)
+        # Heads operate per timestep; flatten then restore
+        head_input = gru_out.contiguous().view(batch_size * seq_len, -1)
+        policy_logits = self.policy_head(head_input).view(batch_size, seq_len, -1)
+        value = self.value_head(head_input).view(batch_size, seq_len, -1)
+
+        if single_timestep_input:
+            policy_logits = policy_logits.squeeze(1)
+            value = value.squeeze(1)
 
         return policy_logits, value, hidden
 
     def predict(self, x):
         """Convenience method for inference (no hidden state management)"""
         policy_logits, value, _ = self.forward(x)
-        policy_probs = torch.softmax(policy_logits, dim=1)
+
+        if policy_logits.dim() == 3:
+            # Squeeze sequence dimension for single-step inference
+            policy_logits = policy_logits.squeeze(1)
+        policy_probs = torch.softmax(policy_logits, dim=-1)
         return policy_probs, value
 
 

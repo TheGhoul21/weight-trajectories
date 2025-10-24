@@ -1,0 +1,34 @@
+{
+  "generation_time_seconds": 354.275834,
+  "total_games": 80,
+  "actual_games_generated": 80,
+  "total_positions": 4926,
+  "positions_per_game": 61.575,
+  "player1_wins": 31,
+  "player2_wins": 31,
+  "draws": 18,
+  "first_player_win_rate": 0.3375,
+  "mcts_simulations": 50,
+  "cpus_used": 40,
+  "data_augmentation": true,
+  "dirichlet_noise": true,
+  "tensor_shapes": {
+    "states": [
+      4926,
+      3,
+      6,
+      7
+    ],
+    "policies": [
+      4926,
+      7
+    ],
+    "values": [
+      4926,
+      1
+    ]
+  },
+  "generation_timestamp": "2025-10-22T05:37:11.840423",
+  "pytorch_version": "2.9.0",
+  "numpy_version": "2.3.4"
+}
