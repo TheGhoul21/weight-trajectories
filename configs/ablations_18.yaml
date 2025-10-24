@@ -1,5 +1,9 @@
 # 18 Ablation Study Configurations
 # Kernel × Channels × GRU = 2 × 3 × 3 = 18 models
+# Run example:
+#   python src/train.py --config configs/ablations_18.yaml --model all
+
+data: data/connect4_10k_games.pt
 
 # Kernel 3x3, Channels 16
 k3_c16_gru8:
@@ -168,3 +172,36 @@ k6_c256_gru128:
   epochs: 100
   lr: 0.001
   save_every: 10
+
+# Convenience aggregate targets
+k3_all:
+  name: kernel3
+  includes:
+    - k3_c16_gru8
+    - k3_c16_gru32
+    - k3_c16_gru128
+    - k3_c64_gru8
+    - k3_c64_gru32
+    - k3_c64_gru128
+    - k3_c256_gru8
+    - k3_c256_gru32
+    - k3_c256_gru128
+
+k6_all:
+  name: kernel6
+  includes:
+    - k6_c16_gru8
+    - k6_c16_gru32
+    - k6_c16_gru128
+    - k6_c64_gru8
+    - k6_c64_gru32
+    - k6_c64_gru128
+    - k6_c256_gru8
+    - k6_c256_gru32
+    - k6_c256_gru128
+
+all:
+  name: ablations_all
+  includes:
+    - k3_all
+    - k6_all
