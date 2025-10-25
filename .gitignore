@@ -11,6 +11,9 @@ data/*.npz
 data/*.json
 checkpoints/
 models/*.pt
+artifacts/
+visualizations/
+ablation_study/outputs/
 
 # External repository (not tracked as submodule)
 dataset/
@@ -33,3 +36,17 @@ dataset/
 Thumbs.db
 
 .venv/
+
+# LaTeX
+*.aux
+*.log
+*.out
+*.toc
+*.pdf
+*.bcf
+*.blg
+*.run.xml
+
+# UV
+.uv/
+.uv_logs/

@@ -94,6 +94,57 @@ This creates:
   --viz-type summary
 ```
 
+### Handling Large Checkpoints
+
+High-capacity CNN ablations produce very wide weight vectors. The visualizer now auto-applies a compact PCA (capped by the number of checkpoints, defaulting to at most 32 dims) before PHATE when the flattened dimension exceeds 5k features. You can override it explicitly:
+
+```bash
+.venv/bin/python3 src/visualize_trajectories.py \
+  --checkpoint-dir checkpoints/k3_c256_gru8_20251024_011942 \
+  --viz-type cnn \
+  --phate-n-pca 16
+```
+
+Use a smaller `--phate-n-pca` (it will automatically clip to the maximum supported by the checkpoint count) if you still hit memory pressure. Setting `--phate-n-pca 0` is not allowed; omit the flag to stay on the auto setting.
+
+### Making Crowded Plots Readable
+
+When several runs collapse onto the same region, tweak PHATE's geometry directly:
+
+- `--phate-knn 6` widens the local neighbourhood before diffusion (default adapts to checkpoint count).
+- `--phate-t 20` lets diffusion run longer, smoothing noise and separating large-scale trends.
+- `--phate-decay 100` softens the kernel tail; smaller values emphasise local structure.
+
+Example:
+
+```bash
+.venv/bin/python3 src/visualize_trajectories.py \
+  --viz-type ablation-cnn \
+  --ablation-dirs checkpoints/k6_c16_gru8_20251024_085919 \
+                    checkpoints/k6_c64_gru8_20251024_092656 \
+                    checkpoints/k6_c256_gru8_20251024_104719 \
+  --ablation-animate \
+  --ablation-center normalize \
+  --phate-n-pca 20 \
+  --phate-knn 6 \
+  --phate-t 18 \
+  --phate-decay 80
+```
+
+Pair the tuning with `--ablation-center normalize` to anchor each curve at epoch zero and scale by path length so trajectories stop overlapping right at the origin.
+
+### Batch Runs + Markdown Reports
+
+Use `scripts/run_visualization_suite.py` to execute multiple visualization commands and stitch the outputs into a single report:
+
+```bash
+python scripts/run_visualization_suite.py \
+  --config configs/visualization_suite_example.json \
+  --report visualizations/latest_report.md
+```
+
+Each experiment entry in the JSON config supplies the exact CLI arguments (same format as above) and lists the images the script should embed. After running, the report file contains command summaries and inline previews so you can compare sweeps quickly.
+
 ## 3. Training Models
 
 Training is done with the dataset venv:

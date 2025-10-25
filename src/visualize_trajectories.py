@@ -11,14 +11,21 @@ Provides visualizations for:
 import argparse
 from pathlib import Path
 import json
+import re
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 import matplotlib.pyplot as plt
+from matplotlib import colors
 from matplotlib.animation import FuncAnimation
+from matplotlib.lines import Line2D
 import phate
 
-from model import create_model
+try:
+    from .model import create_model
+except ImportError:  # Fallback for direct script execution
+    from model import create_model
 
 
 class TrajectoryVisualizer:
@@ -43,7 +50,6 @@ class TrajectoryVisualizer:
 
         # Extract model config from directory name
         # Format: k{kernel}_c{channels}_gru{gru}_{timestamp}
-        import re
         match = re.search(r'k(\d+)_c(\d+)_gru(\d+)', str(checkpoint_dir))
         if match:
             self.kernel_size = int(match.group(1))
@@ -54,21 +60,96 @@ class TrajectoryVisualizer:
 
         print(f"Model config: k={self.kernel_size}, c={self.cnn_channels}, gru={self.gru_hidden}")
 
-    def load_checkpoints(self):
-        """Load all saved checkpoints"""
-        checkpoint_files = sorted(self.checkpoint_dir.glob("weights_epoch_*.pt"))
+    @staticmethod
+    def _closest_epoch_index(epochs, target_epoch):
+        """Return index of epoch closest to target."""
+        if not epochs:
+            raise ValueError("Epoch list is empty")
+        diffs = [abs(epoch - target_epoch) for epoch in epochs]
+        return int(np.argmin(diffs))
 
-        if len(checkpoint_files) == 0:
+    def _collect_validation_markers(self, epochs):
+        """Return indices for minimal and final validation loss if history is available."""
+        if not self.history or 'val_loss' not in self.history:
+            return {}
+
+        val_losses = self.history['val_loss']
+        if not val_losses:
+            return {}
+
+        markers = {}
+        min_epoch = int(np.argmin(val_losses)) + 1
+        min_idx = self._closest_epoch_index(epochs, min_epoch)
+        markers['min'] = {
+            'epoch': min_epoch,
+            'loss': float(val_losses[min_epoch - 1]),
+            'index': min_idx
+        }
+
+        final_epoch = len(val_losses)
+        final_idx = self._closest_epoch_index(epochs, final_epoch)
+        markers['final'] = {
+            'epoch': final_epoch,
+            'loss': float(val_losses[-1]),
+            'index': final_idx
+        }
+
+        return markers
+
+    def _gather_checkpoint_files(self):
+        """Collect checkpoint files sorted by epoch."""
+        checkpoint_files = []
+        for cp_file in self.checkpoint_dir.glob("weights_epoch_*.pt"):
+            match = re.search(r'weights_epoch_(\d+)\.pt', cp_file.name)
+            if not match:
+                continue
+            checkpoint_files.append((int(match.group(1)), cp_file))
+
+        if not checkpoint_files:
             raise ValueError(f"No checkpoints found in {self.checkpoint_dir}")
 
+        checkpoint_files.sort(key=lambda item: item[0])
+        return checkpoint_files
+
+    def load_checkpoints(self):
+        """Load all saved checkpoints"""
+        checkpoint_files = self._gather_checkpoint_files()
         print(f"Found {len(checkpoint_files)} checkpoints")
 
         checkpoints = []
-        for cp_file in checkpoint_files:
+        for expected_epoch, cp_file in checkpoint_files:
             cp = torch.load(cp_file, map_location=self.device, weights_only=False)
+            cp_epoch = cp.get('epoch', expected_epoch)
+            cp['epoch'] = cp_epoch
             checkpoints.append(cp)
 
         return checkpoints
+
+    def get_latest_checkpoint_path(self):
+        """Return the path to the most recent checkpoint, sorted by epoch."""
+        return self._gather_checkpoint_files()[-1][1]
+
+    def _filter_checkpoints(self, checkpoints, epoch_min=None, epoch_max=None, epoch_stride=1):
+        """Filter checkpoints by epoch range and stride."""
+        stride = max(1, int(epoch_stride or 1))
+        pairs = []
+        for idx, cp in enumerate(checkpoints):
+            epoch_val = cp.get('epoch', idx + 1)
+            if epoch_min is not None and epoch_val < epoch_min:
+                continue
+            if epoch_max is not None and epoch_val > epoch_max:
+                continue
+            pairs.append((cp, epoch_val))
+
+        if not pairs:
+            raise ValueError("No checkpoints remain after applying epoch filters")
+
+        if stride > 1:
+            pairs = pairs[::stride]
+
+        filtered_checkpoints = [item[0] for item in pairs]
+        epochs = [item[1] for item in pairs]
+        return filtered_checkpoints, epochs
 
     def extract_cnn_weights(self, checkpoints):
         """
@@ -119,7 +200,63 @@ class TrajectoryVisualizer:
 
         return np.array(all_weights)
 
-    def visualize_weight_trajectory(self, weights, title, save_path=None):
+    def _select_knn(self, n_samples, max_knn=5):
+        """Select a PHATE knn parameter that works for small sample counts."""
+        if n_samples < 2:
+            raise ValueError("Need at least two checkpoints to compute a trajectory embedding")
+        return max(2, min(max_knn, n_samples - 1))
+
+    @staticmethod
+    def _resolve_phate_n_pca(n_features, n_samples, requested=None):
+        """Resolve a safe PCA dimension before PHATE given feature/sample counts."""
+        if n_features < 2 or n_samples < 2:
+            return None, None
+
+        max_valid = min(n_features - 1, n_samples - 1)
+        if max_valid < 1:
+            return None, None
+
+        if requested is not None:
+            if requested <= 0:
+                raise ValueError("PHATE n_pca must be a positive integer")
+            resolved = min(requested, max_valid)
+            message = None
+            if requested > max_valid:
+                message = ("Requested n_pca exceeds what the data supports; "
+                           f"using {resolved} instead of {requested}.")
+            return resolved, message
+
+        if n_features >= 5000:
+            resolved = min(32, max_valid)
+            message = (f"Auto-selecting n_pca={resolved} for high-dimensional weights "
+                       f"({n_features} features, {n_samples} checkpoints).")
+            return resolved, message
+
+        return None, None
+
+    @staticmethod
+    def _resolve_phate_knn(n_samples, default_max, requested=None):
+        """Resolve a PHATE kNN value, respecting sample count and optional override."""
+        if n_samples < 2:
+            raise ValueError("Need at least two checkpoints to compute a trajectory embedding")
+
+        auto_knn = max(2, min(default_max, n_samples - 1))
+        if requested is None:
+            return auto_knn, None
+
+        if requested < 2:
+            raise ValueError("PHATE knn must be at least 2")
+
+        resolved = min(requested, n_samples - 1)
+        message = None
+        if resolved != requested:
+            message = ("Requested knn exceeds available checkpoints; "
+                       f"using {resolved} instead of {requested}.")
+        return resolved, message
+
+    def visualize_weight_trajectory(self, weights, title, save_path=None, epochs=None,
+                                     phate_n_pca=None, phate_knn=None, phate_t=None,
+                                     phate_decay=None):
         """
         Visualize weight trajectory using PHATE
 
@@ -127,36 +264,94 @@ class TrajectoryVisualizer:
             weights: (n_epochs, n_weights) array
             title: Plot title
             save_path: Optional path to save figure
+            epochs: Optional list of epoch indices aligned with weights
+            phate_n_pca: Optional PCA dimension; defaults to auto-thresholding
+            phate_knn: Optional override for PHATE knn neighbourhood size
+            phate_t: Optional PHATE diffusion time
+            phate_decay: Optional PHATE decay parameter (float, or 0 to disable)
         """
         print(f"\nComputing PHATE embedding for {title}...")
         print(f"  Input shape: {weights.shape}")
 
+        if epochs is None:
+            epochs = list(range(1, len(weights) + 1))
+
+        if len(epochs) != len(weights):
+            raise ValueError("Length of epochs must match number of weight snapshots")
+
         # Apply PHATE with adaptive knn for small datasets
         n_samples = weights.shape[0]
-        knn = min(3, max(2, n_samples - 2))  # Ensure knn is valid
+        knn, knn_msg = self._resolve_phate_knn(n_samples, default_max=3,
+                                               requested=phate_knn)
+        if knn_msg:
+            print(f"  {knn_msg}")
 
-        phate_op = phate.PHATE(n_components=2, knn=knn, t=10, verbose=False)
-        weights_phate = phate_op.fit_transform(weights)
+        resolved_n_pca, info_msg = self._resolve_phate_n_pca(weights.shape[1], n_samples, phate_n_pca)
+        weights_for_phate = weights
+        if resolved_n_pca:
+            if info_msg:
+                print(f"  {info_msg}")
+            weights_for_phate, manual_msg = _manual_pca_projection(weights, resolved_n_pca)
+            if manual_msg:
+                print(f"  {manual_msg}")
+        else:
+            weights_for_phate = weights.astype(np.float32, copy=False)
+
+        phate_op = phate.PHATE(
+            n_components=2,
+            knn=knn,
+            t=phate_t if phate_t is not None else 10,
+            decay=phate_decay if phate_decay is not None else 'auto',
+            verbose=False,
+            n_pca=None
+        )
+        weights_phate = phate_op.fit_transform(weights_for_phate)
 
         # Create plot
         fig, ax = plt.subplots(figsize=(10, 8))
 
-        # Plot trajectory
+        # Plot trajectory backbone
         ax.plot(weights_phate[:, 0], weights_phate[:, 1],
-                'o-', alpha=0.6, linewidth=2, markersize=8)
+                '-', color='0.7', alpha=0.8, linewidth=2)
+
+        # Color points by epoch to convey temporal progression
+        cmap = plt.cm.viridis
+        norm = colors.Normalize(vmin=min(epochs), vmax=max(epochs))
+        scatter = ax.scatter(weights_phate[:, 0], weights_phate[:, 1],
+                             c=epochs, cmap=cmap, norm=norm, s=120, alpha=0.9,
+                             edgecolors='black', linewidths=1.0, zorder=5)
 
         # Mark start and end
         ax.scatter(weights_phate[0, 0], weights_phate[0, 1],
-                  c='green', s=200, marker='o', edgecolors='black',
-                  linewidths=2, label='Start', zorder=10)
-        ax.scatter(weights_phate[-1, 0], weights_phate[-1, 1],
-                  c='red', s=200, marker='*', edgecolors='black',
-                  linewidths=2, label='End', zorder=10)
+                  c='green', s=220, marker='o', edgecolors='black',
+                  linewidths=2, label=f'Start (epoch {epochs[0]})', zorder=10)
+
+        markers = self._collect_validation_markers(epochs)
+        if 'min' in markers:
+            min_data = markers['min']
+            idx = min_data['index']
+            ax.scatter(weights_phate[idx, 0], weights_phate[idx, 1],
+                      c='orange', s=200, marker='D', edgecolors='black', linewidths=1.5,
+                      label=(f"Min val loss (epoch {min_data['epoch']}, "
+                             f"loss {min_data['loss']:.4f})"), zorder=12)
+
+        if 'final' in markers:
+            final_data = markers['final']
+            idx = final_data['index']
+            ax.scatter(weights_phate[idx, 0], weights_phate[idx, 1],
+                      c='red', s=260, marker='*', edgecolors='black', linewidths=2,
+                      label=(f"Final val loss (epoch {final_data['epoch']}, "
+                             f"loss {final_data['loss']:.4f})"), zorder=12)
+        else:
+            ax.scatter(weights_phate[-1, 0], weights_phate[-1, 1],
+                      c='red', s=240, marker='*', edgecolors='black',
+                      linewidths=2, label=f'End (epoch {epochs[-1]})', zorder=10)
 
         # Add epoch labels
+        step = max(1, len(weights_phate) // 10)
         for i, (x, y) in enumerate(weights_phate):
-            if i % max(1, len(weights_phate) // 10) == 0:  # Label every ~10%
-                ax.annotate(f'E{i+1}', (x, y), fontsize=8,
+            if i % step == 0 or i == len(weights_phate) - 1:
+                ax.annotate(f'Ep {epochs[i]}', (x, y), fontsize=8,
                            xytext=(5, 5), textcoords='offset points')
 
         ax.set_xlabel('PHATE 1', fontsize=12)
@@ -164,6 +359,10 @@ class TrajectoryVisualizer:
         ax.set_title(title, fontsize=14, fontweight='bold')
         ax.legend(fontsize=10)
         ax.grid(True, alpha=0.3)
+
+        # Colorbar to reinforce temporal ordering
+        cbar = plt.colorbar(scatter, ax=ax)
+        cbar.set_label('Epoch', fontsize=10)
 
         plt.tight_layout()
 
@@ -173,24 +372,34 @@ class TrajectoryVisualizer:
 
         return fig, weights_phate
 
-    def visualize_cnn_trajectory(self, save_path=None):
-        """Visualize CNN weight evolution"""
+    def visualize_cnn_trajectory(self, save_path=None, epoch_min=None, epoch_max=None,
+                                 epoch_stride=1, phate_n_pca=None, phate_knn=None,
+                                 phate_t=None, phate_decay=None):
+        """Visualize CNN weight evolution."""
         checkpoints = self.load_checkpoints()
+        checkpoints, epochs = self._filter_checkpoints(checkpoints, epoch_min, epoch_max, epoch_stride)
         cnn_weights = self.extract_cnn_weights(checkpoints)
-
-        epochs = [cp['epoch'] for cp in checkpoints]
         title = f"CNN Weight Trajectory (k={self.kernel_size}, c={self.cnn_channels})"
 
-        return self.visualize_weight_trajectory(cnn_weights, title, save_path)
+        return self.visualize_weight_trajectory(cnn_weights, title, save_path, epochs,
+                                                phate_n_pca=phate_n_pca,
+                                                phate_knn=phate_knn,
+                                                phate_t=phate_t,
+                                                phate_decay=phate_decay)
 
-    def visualize_gru_trajectory(self, save_path=None):
-        """Visualize GRU weight evolution"""
+    def visualize_gru_trajectory(self, save_path=None, epoch_min=None, epoch_max=None,
+                                 epoch_stride=1, phate_n_pca=None, phate_knn=None,
+                                 phate_t=None, phate_decay=None):
+        """Visualize GRU weight evolution."""
         checkpoints = self.load_checkpoints()
+        checkpoints, epochs = self._filter_checkpoints(checkpoints, epoch_min, epoch_max, epoch_stride)
         gru_weights = self.extract_gru_weights(checkpoints)
-
         title = f"GRU Weight Trajectory (hidden={self.gru_hidden})"
-
-        return self.visualize_weight_trajectory(gru_weights, title, save_path)
+        return self.visualize_weight_trajectory(gru_weights, title, save_path, epochs,
+                                                phate_n_pca=phate_n_pca,
+                                                phate_knn=phate_knn,
+                                                phate_t=phate_t,
+                                                phate_decay=phate_decay)
 
     def visualize_board_representations(self, board_states, checkpoint_path, save_path=None):
         """
@@ -222,8 +431,11 @@ class TrajectoryVisualizer:
         print(f"  Representation shape: {representations.shape}")
 
         # Apply PHATE
-        phate_op = phate.PHATE(n_components=2, knn=min(5, len(representations)-1),
-                              t=10, verbose=False)
+        if len(representations) < 2:
+            raise ValueError("Need at least two board states to compute a PHATE embedding")
+
+        knn = self._select_knn(len(representations))
+        phate_op = phate.PHATE(n_components=2, knn=knn, t=10, verbose=False)
         repr_phate = phate_op.fit_transform(representations)
 
         # Plot
@@ -280,8 +492,11 @@ class TrajectoryVisualizer:
         print(f"  Game length: {len(representations)} moves")
 
         # Apply PHATE
-        phate_op = phate.PHATE(n_components=2, knn=min(5, len(representations)-1),
-                              t=10, verbose=False)
+        if len(representations) < 2:
+            raise ValueError("Need at least two game states to compute a PHATE embedding")
+
+        knn = self._select_knn(len(representations))
+        phate_op = phate.PHATE(n_components=2, knn=knn, t=10, verbose=False)
         repr_phate = phate_op.fit_transform(representations)
 
         # Plot
@@ -319,36 +534,104 @@ class TrajectoryVisualizer:
 
         return fig, repr_phate
 
-    def create_summary_plot(self):
-        """Create a 2x2 summary plot with all visualizations"""
+    def create_summary_plot(self, epoch_min=None, epoch_max=None, epoch_stride=1,
+                            phate_n_pca=None, phate_knn=None, phate_t=None,
+                            phate_decay=None):
+        """Create a 2x2 summary plot with all visualizations.
+
+        Args:
+            phate_n_pca: Optional PCA dimension applied before each PHATE fit.
+            phate_knn: Optional PHATE knn override shared across subplots.
+            phate_t: Optional diffusion time parameter.
+            phate_decay: Optional decay parameter.
+        """
         print("\nCreating summary visualization...")
 
         checkpoints = self.load_checkpoints()
+        checkpoints, checkpoint_epochs = self._filter_checkpoints(
+            checkpoints, epoch_min, epoch_max, epoch_stride)
         cnn_weights = self.extract_cnn_weights(checkpoints)
         gru_weights = self.extract_gru_weights(checkpoints)
 
         # Compute PHATE embeddings with adaptive knn
         n_samples = len(checkpoints)
-        knn = min(3, max(2, n_samples - 2))
+        knn, knn_msg = self._resolve_phate_knn(n_samples, default_max=3, requested=phate_knn)
+        if knn_msg:
+            print(f"  {knn_msg}")
 
         print("  Computing CNN PHATE...")
-        phate_op_cnn = phate.PHATE(n_components=2, knn=knn, t=10, verbose=False)
-        cnn_phate = phate_op_cnn.fit_transform(cnn_weights)
+        resolved_n_pca_cnn, info_cnn = self._resolve_phate_n_pca(cnn_weights.shape[1], n_samples,
+                                                                  phate_n_pca)
+        cnn_input = cnn_weights.astype(np.float32, copy=False)
+        if resolved_n_pca_cnn:
+            if info_cnn:
+                print(f"  {info_cnn}")
+            cnn_input, manual_msg = _manual_pca_projection(cnn_input, resolved_n_pca_cnn)
+            if manual_msg:
+                print(f"  {manual_msg}")
+
+        phate_op_cnn = phate.PHATE(
+            n_components=2,
+            knn=knn,
+            t=phate_t if phate_t is not None else 10,
+            decay=phate_decay if phate_decay is not None else 'auto',
+            verbose=False,
+            n_pca=None
+        )
+        cnn_phate = phate_op_cnn.fit_transform(cnn_input)
 
         print("  Computing GRU PHATE...")
-        phate_op_gru = phate.PHATE(n_components=2, knn=knn, t=10, verbose=False)
-        gru_phate = phate_op_gru.fit_transform(gru_weights)
+        resolved_n_pca_gru, info_gru = self._resolve_phate_n_pca(gru_weights.shape[1], n_samples,
+                                                                  phate_n_pca)
+        gru_input = gru_weights.astype(np.float32, copy=False)
+        if resolved_n_pca_gru:
+            if info_gru:
+                print(f"  {info_gru}")
+            gru_input, manual_msg = _manual_pca_projection(gru_input, resolved_n_pca_gru)
+            if manual_msg:
+                print(f"  {manual_msg}")
+
+        phate_op_gru = phate.PHATE(
+            n_components=2,
+            knn=knn,
+            t=phate_t if phate_t is not None else 10,
+            decay=phate_decay if phate_decay is not None else 'auto',
+            verbose=False,
+            n_pca=None
+        )
+        gru_phate = phate_op_gru.fit_transform(gru_input)
 
         # Create 2x2 plot
         fig = plt.figure(figsize=(16, 12))
+        norm_epochs = colors.Normalize(vmin=min(checkpoint_epochs), vmax=max(checkpoint_epochs))
 
         # CNN trajectory
         ax1 = plt.subplot(2, 2, 1)
-        ax1.plot(cnn_phate[:, 0], cnn_phate[:, 1], 'o-', alpha=0.6, linewidth=2, markersize=6)
+        ax1.plot(cnn_phate[:, 0], cnn_phate[:, 1], '-', color='0.7', alpha=0.8, linewidth=2)
+        scatter_cnn = ax1.scatter(cnn_phate[:, 0], cnn_phate[:, 1],
+                                  c=checkpoint_epochs, cmap=plt.cm.viridis, norm=norm_epochs, s=80,
+                                  edgecolors='black', linewidths=1.0, zorder=5)
         ax1.scatter(cnn_phate[0, 0], cnn_phate[0, 1], c='green', s=150, marker='o',
-                   edgecolors='black', linewidths=2, zorder=10)
-        ax1.scatter(cnn_phate[-1, 0], cnn_phate[-1, 1], c='red', s=150, marker='*',
-                   edgecolors='black', linewidths=2, zorder=10)
+                   edgecolors='black', linewidths=2, zorder=10, label=f'Start (epoch {checkpoint_epochs[0]})')
+
+        cnn_markers = self._collect_validation_markers(checkpoint_epochs)
+        if 'min' in cnn_markers:
+            m = cnn_markers['min']
+            idx = m['index']
+            ax1.scatter(cnn_phate[idx, 0], cnn_phate[idx, 1], c='orange', s=170, marker='D',
+                        edgecolors='black', linewidths=1.3,
+                        label=f"Min val loss (epoch {m['epoch']}, loss {m['loss']:.4f})", zorder=12)
+        if 'final' in cnn_markers:
+            m = cnn_markers['final']
+            idx = m['index']
+            ax1.scatter(cnn_phate[idx, 0], cnn_phate[idx, 1], c='red', s=200, marker='*',
+                        edgecolors='black', linewidths=1.6,
+                        label=f"Final val loss (epoch {m['epoch']}, loss {m['loss']:.4f})", zorder=12)
+        else:
+            ax1.scatter(cnn_phate[-1, 0], cnn_phate[-1, 1], c='red', s=150, marker='*',
+                        edgecolors='black', linewidths=2, zorder=10, label=f'End (epoch {checkpoint_epochs[-1]})')
+
+        ax1.legend(fontsize=9, loc='best')
         ax1.set_xlabel('PHATE 1')
         ax1.set_ylabel('PHATE 2')
         ax1.set_title(f'CNN Trajectory (k={self.kernel_size}, c={self.cnn_channels})', fontweight='bold')
@@ -356,22 +639,48 @@ class TrajectoryVisualizer:
 
         # GRU trajectory
         ax2 = plt.subplot(2, 2, 2)
-        ax2.plot(gru_phate[:, 0], gru_phate[:, 1], 'o-', alpha=0.6, linewidth=2, markersize=6, color='orange')
+        ax2.plot(gru_phate[:, 0], gru_phate[:, 1], '-', color='0.7', alpha=0.8, linewidth=2)
+        scatter_gru = ax2.scatter(gru_phate[:, 0], gru_phate[:, 1],
+                                  c=checkpoint_epochs, cmap=plt.cm.viridis, norm=norm_epochs, s=80,
+                                  edgecolors='black', linewidths=1.0, zorder=5)
         ax2.scatter(gru_phate[0, 0], gru_phate[0, 1], c='green', s=150, marker='o',
-                   edgecolors='black', linewidths=2, zorder=10)
-        ax2.scatter(gru_phate[-1, 0], gru_phate[-1, 1], c='red', s=150, marker='*',
-                   edgecolors='black', linewidths=2, zorder=10)
+                   edgecolors='black', linewidths=2, zorder=10, label=f'Start (epoch {checkpoint_epochs[0]})')
+
+        gru_markers = self._collect_validation_markers(checkpoint_epochs)
+        if 'min' in gru_markers:
+            m = gru_markers['min']
+            idx = m['index']
+            ax2.scatter(gru_phate[idx, 0], gru_phate[idx, 1], c='orange', s=170, marker='D',
+                        edgecolors='black', linewidths=1.3,
+                        label=f"Min val loss (epoch {m['epoch']}, loss {m['loss']:.4f})", zorder=12)
+        if 'final' in gru_markers:
+            m = gru_markers['final']
+            idx = m['index']
+            ax2.scatter(gru_phate[idx, 0], gru_phate[idx, 1], c='red', s=200, marker='*',
+                        edgecolors='black', linewidths=1.6,
+                        label=f"Final val loss (epoch {m['epoch']}, loss {m['loss']:.4f})", zorder=12)
+        else:
+            ax2.scatter(gru_phate[-1, 0], gru_phate[-1, 1], c='red', s=150, marker='*',
+                        edgecolors='black', linewidths=2, zorder=10, label=f'End (epoch {checkpoint_epochs[-1]})')
+
+        ax2.legend(fontsize=9, loc='best')
         ax2.set_xlabel('PHATE 1')
         ax2.set_ylabel('PHATE 2')
         ax2.set_title(f'GRU Trajectory (hidden={self.gru_hidden})', fontweight='bold')
         ax2.grid(True, alpha=0.3)
 
+        # Shared colorbar for epoch progression
+        sm = plt.cm.ScalarMappable(norm=norm_epochs, cmap=plt.cm.viridis)
+        sm.set_array([])
+        cbar = fig.colorbar(sm, ax=[ax1, ax2], fraction=0.046, pad=0.04)
+        cbar.set_label('Epoch')
+
         # Loss curves
         if self.history:
             ax3 = plt.subplot(2, 2, 3)
-            epochs = range(1, len(self.history['train_loss']) + 1)
-            ax3.plot(epochs, self.history['train_loss'], label='Train Loss', linewidth=2)
-            ax3.plot(epochs, self.history['val_loss'], label='Val Loss', linewidth=2)
+            epoch_range = range(1, len(self.history['train_loss']) + 1)
+            ax3.plot(epoch_range, self.history['train_loss'], label='Train Loss', linewidth=2)
+            ax3.plot(epoch_range, self.history['val_loss'], label='Val Loss', linewidth=2)
             ax3.set_xlabel('Epoch')
             ax3.set_ylabel('Loss')
             ax3.set_title('Training Progress', fontweight='bold')
@@ -380,8 +689,8 @@ class TrajectoryVisualizer:
 
             # Component losses
             ax4 = plt.subplot(2, 2, 4)
-            ax4.plot(epochs, self.history['val_policy_loss'], label='Policy Loss', linewidth=2)
-            ax4.plot(epochs, self.history['val_value_loss'], label='Value Loss', linewidth=2)
+            ax4.plot(epoch_range, self.history['val_policy_loss'], label='Policy Loss', linewidth=2)
+            ax4.plot(epoch_range, self.history['val_value_loss'], label='Value Loss', linewidth=2)
             ax4.set_xlabel('Epoch')
             ax4.set_ylabel('Loss')
             ax4.set_title('Validation Component Losses', fontweight='bold')
@@ -393,6 +702,535 @@ class TrajectoryVisualizer:
         plt.tight_layout()
 
         return fig
+
+    @staticmethod
+    def _board_from_tensor(board_tensor):
+        """Convert board tensor to occupancy grid and turn indicator."""
+        arr = board_tensor.squeeze(0).cpu().detach().numpy()
+        occupancy = np.zeros((6, 7), dtype=np.int8)
+        occupancy[arr[0] == 1] = 1  # Player one pieces
+        occupancy[arr[1] == 1] = -1  # Player two pieces
+        turn = int(arr[2].mean().round())
+        return occupancy, turn
+
+    def _compute_grad_cam(self, model, board_tensor, target='policy', move=None):
+        """Compute Grad-CAM heatmap for a single board state."""
+        activations = {}
+        gradients = {}
+
+        target_layer = model.resnet[-1]
+
+        def forward_hook(_, __, output):
+            activations['value'] = output.detach()
+
+        def backward_hook(_, grad_input, grad_output):
+            gradients['value'] = grad_output[0].detach()
+
+        handle_f = target_layer.register_forward_hook(forward_hook)
+        if hasattr(target_layer, 'register_full_backward_hook'):
+            handle_b = target_layer.register_full_backward_hook(backward_hook)
+        else:
+            handle_b = target_layer.register_backward_hook(backward_hook)
+
+        model.zero_grad(set_to_none=True)
+
+        board_tensor = board_tensor.to(self.device)
+        board_tensor = board_tensor.requires_grad_(True)
+        policy_logits, value, _ = model(board_tensor)
+
+        predicted_move = torch.argmax(policy_logits, dim=-1).item()
+
+        if target == 'policy':
+            focus_move = move if move is not None else predicted_move
+            target_logit = policy_logits[0, focus_move]
+        else:
+            focus_move = None
+            target_logit = value.view(-1)[0]
+
+        target_logit.backward(retain_graph=True)
+
+        activation = activations['value']
+        gradient = gradients['value']
+
+        weights = gradient.mean(dim=(2, 3), keepdim=True)
+        cam = (weights * activation).sum(dim=1, keepdim=True)
+        cam = F.relu(cam)
+        cam = F.interpolate(cam, size=(6, 7), mode='bilinear', align_corners=False)
+        cam = cam.squeeze().cpu().numpy()
+        cam = (cam - cam.min()) / (cam.max() - cam.min() + 1e-8)
+
+        policy_probs = torch.softmax(policy_logits, dim=-1).detach().cpu().numpy().squeeze()
+        value_pred = value.detach().cpu().numpy().squeeze().item()
+
+        handle_f.remove()
+        handle_b.remove()
+        model.zero_grad(set_to_none=True)
+
+        return cam, {
+            'focus_move': focus_move,
+            'predicted_move': predicted_move,
+            'policy_probs': policy_probs,
+            'value': value_pred,
+            'target': target
+        }
+
+    def visualize_cnn_activations(self, board_states, checkpoint_path, save_dir,
+                                   target='policy', move=None, max_examples=4):
+        """Generate Grad-CAM heatmaps for CNN activations on supplied boards."""
+        print("\nComputing CNN Grad-CAM activations...")
+
+        model = create_model(self.cnn_channels, self.gru_hidden, self.kernel_size)
+        checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
+        model.load_state_dict(checkpoint['state_dict'])
+        model.to(self.device)
+        model.eval()
+
+        save_dir = Path(save_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
+
+        board_states = board_states[:max_examples]
+        results = []
+
+        for idx, state in enumerate(board_states):
+            cam, meta = self._compute_grad_cam(
+                model, state, target=target, move=move)
+
+            occupancy, turn = self._board_from_tensor(state)
+
+            fig, ax = plt.subplots(figsize=(5, 4))
+            board_cmap = colors.ListedColormap(['#d73027', '#f7f7f7', '#4575b4'])
+            board_norm = colors.BoundaryNorm([-1.5, -0.5, 0.5, 1.5], board_cmap.N)
+            ax.imshow(occupancy, cmap=board_cmap, norm=board_norm, origin='upper')
+            heat = ax.imshow(cam, cmap='inferno', alpha=0.55, origin='upper')
+
+            ax.set_xticks(range(7))
+            ax.set_yticks(range(6))
+            ax.set_xticklabels(range(7))
+            ax.set_yticklabels(range(5, -1, -1))
+            ax.set_xlabel('Column')
+            ax.set_ylabel('Row (bottom to top)')
+            move_text = "N/A"
+            move_prob = None
+            if meta['focus_move'] is not None:
+                move_text = str(meta['focus_move'])
+                move_prob = meta['policy_probs'][meta['focus_move']]
+            elif meta['predicted_move'] is not None:
+                move_text = str(meta['predicted_move'])
+                move_prob = meta['policy_probs'][meta['predicted_move']]
+
+            subtitle = f"Grad-CAM ({target.title()})"
+            subtitle += f"\nFocus move {move_text}"
+            if move_prob is not None:
+                subtitle += f" prob {move_prob:.2f}"
+            subtitle += f", value {meta['value']:.2f}"
+            ax.set_title(subtitle)
+            ax.grid(which='both', color='black', linestyle='-', linewidth=0.5, alpha=0.2)
+
+            cbar = plt.colorbar(heat, ax=ax, fraction=0.046, pad=0.04)
+            cbar.set_label('Activation intensity')
+
+            turn_text = 'Red to move' if turn else 'Yellow to move'
+            ax.text(0.02, 0.02, turn_text, transform=ax.transAxes,
+                    fontsize=9, fontweight='bold', color='black', bbox=dict(facecolor='white', alpha=0.6))
+
+            fname = save_dir / f"activation_{idx:03d}.png"
+            fig.tight_layout()
+            fig.savefig(fname, dpi=300, bbox_inches='tight')
+            plt.close(fig)
+
+            results.append({
+                'path': fname,
+                'focus_move': meta['focus_move'],
+                'predicted_move': meta['predicted_move'],
+                'value': meta['value'],
+                'target': meta['target']
+            })
+
+            print(f"  Saved {fname}")
+
+        return results
+
+    def visualize_joint_cnn_gru(self, save_path=None, epoch_min=None, epoch_max=None,
+                                 epoch_stride=1, center_strategy='none',
+                                 phate_n_pca=None, phate_knn=None, phate_t=None,
+                                 phate_decay=None):
+        """Plot CNN and GRU trajectories together in a shared PHATE embedding.
+
+        Args:
+            phate_n_pca: Optional PCA dimension applied to the stacked weights before PHATE.
+            phate_knn: Optional PHATE knn override for the joint embedding.
+            phate_t: Optional diffusion time parameter.
+            phate_decay: Optional decay parameter.
+        """
+        checkpoints = self.load_checkpoints()
+        checkpoints, epochs = self._filter_checkpoints(checkpoints, epoch_min, epoch_max, epoch_stride)
+
+        cnn_weights = self.extract_cnn_weights(checkpoints)
+        gru_weights = self.extract_gru_weights(checkpoints)
+
+        max_dim = max(cnn_weights.shape[1], gru_weights.shape[1])
+        cnn_weights = _pad_weights_to_length(cnn_weights, max_dim)
+        gru_weights = _pad_weights_to_length(gru_weights, max_dim)
+
+        combined = np.vstack([cnn_weights, gru_weights]).astype(np.float32, copy=False)
+        knn, knn_msg = self._resolve_phate_knn(combined.shape[0], default_max=3,
+                                               requested=phate_knn)
+        if knn_msg:
+            print(f"  {knn_msg}")
+        resolved_n_pca, info_msg = self._resolve_phate_n_pca(combined.shape[1], combined.shape[0],
+                                                             phate_n_pca)
+        phate_input = combined
+        if resolved_n_pca:
+            if info_msg:
+                print(f"  {info_msg}")
+            phate_input, manual_msg = _manual_pca_projection(combined, resolved_n_pca)
+            if manual_msg:
+                print(f"  {manual_msg}")
+
+        phate_op = phate.PHATE(
+            n_components=2,
+            knn=knn,
+            t=phate_t if phate_t is not None else 10,
+            decay=phate_decay if phate_decay is not None else 'auto',
+            verbose=False,
+            n_pca=None
+        )
+        embedding = phate_op.fit_transform(phate_input)
+
+        cnn_embed = embedding[:len(cnn_weights)]
+        gru_embed = embedding[len(cnn_weights):]
+
+        cnn_embed = _adjust_embedding(cnn_embed, center_strategy)
+        gru_embed = _adjust_embedding(gru_embed, center_strategy)
+
+        fig, ax = plt.subplots(figsize=(10, 8))
+        cnn_color = '#1f77b4'
+        gru_color = '#d62728'
+
+        ax.plot(cnn_embed[:, 0], cnn_embed[:, 1], '-', color=cnn_color, linewidth=2, alpha=0.85)
+        ax.scatter(cnn_embed[:, 0], cnn_embed[:, 1], c=cnn_color, s=70, alpha=0.7,
+                   edgecolors='black', linewidths=0.6)
+        ax.scatter(cnn_embed[0, 0], cnn_embed[0, 1], c=cnn_color, s=160, marker='o',
+                   edgecolors='black', linewidths=1.2, zorder=10)
+
+        ax.plot(gru_embed[:, 0], gru_embed[:, 1], '-', color=gru_color, linewidth=2, alpha=0.85)
+        ax.scatter(gru_embed[:, 0], gru_embed[:, 1], c=gru_color, s=70, alpha=0.7,
+                   edgecolors='black', linewidths=0.6)
+        ax.scatter(gru_embed[0, 0], gru_embed[0, 1], c=gru_color, s=160, marker='s',
+                   edgecolors='black', linewidths=1.2, zorder=10)
+
+        markers = self._collect_validation_markers(epochs)
+        if 'min' in markers:
+            m = markers['min']
+            idx = m['index']
+            ax.scatter(cnn_embed[idx, 0], cnn_embed[idx, 1], c='orange', marker='D', s=210,
+                       edgecolors='black', linewidths=1.4, zorder=12)
+            ax.scatter(gru_embed[idx, 0], gru_embed[idx, 1], facecolors='none', marker='D', s=210,
+                       edgecolors='orange', linewidths=1.6, zorder=12)
+
+        if 'final' in markers:
+            m = markers['final']
+            idx = m['index']
+            ax.scatter(cnn_embed[idx, 0], cnn_embed[idx, 1], c='red', marker='*', s=230,
+                       edgecolors='black', linewidths=1.6, zorder=12)
+            ax.scatter(gru_embed[idx, 0], gru_embed[idx, 1], facecolors='none', marker='*', s=230,
+                       edgecolors='red', linewidths=1.8, zorder=12)
+        else:
+            ax.scatter(cnn_embed[-1, 0], cnn_embed[-1, 1], c='red', marker='*', s=230,
+                       edgecolors='black', linewidths=1.6, zorder=12)
+            ax.scatter(gru_embed[-1, 0], gru_embed[-1, 1], facecolors='none', marker='*', s=230,
+                       edgecolors='red', linewidths=1.8, zorder=12)
+
+        step = max(1, len(epochs) // 10)
+        for i in range(0, len(epochs), step):
+            ax.annotate(f'Ep {epochs[i]}', (cnn_embed[i, 0], cnn_embed[i, 1]), fontsize=8,
+                        xytext=(5, 5), textcoords='offset points')
+            ax.annotate(f'Ep {epochs[i]}', (gru_embed[i, 0], gru_embed[i, 1]), fontsize=8,
+                        xytext=(-30, -10), textcoords='offset points')
+        ax.annotate(f'Ep {epochs[-1]}', (cnn_embed[-1, 0], cnn_embed[-1, 1]), fontsize=8,
+                    xytext=(5, 5), textcoords='offset points')
+        ax.annotate(f'Ep {epochs[-1]}', (gru_embed[-1, 0], gru_embed[-1, 1]), fontsize=8,
+                    xytext=(-30, -10), textcoords='offset points')
+
+        ax.set_xlabel('PHATE 1', fontsize=12)
+        ax.set_ylabel('PHATE 2', fontsize=12)
+        ax.set_title(f'CNN vs GRU Trajectories (k={self.kernel_size}, c={self.cnn_channels}, '
+                     f'gru={self.gru_hidden})', fontsize=14, fontweight='bold')
+        ax.grid(True, alpha=0.3)
+
+        legend_elements = [
+            Line2D([0], [0], color=cnn_color, lw=2, label='CNN trajectory'),
+            Line2D([0], [0], color=gru_color, lw=2, label='GRU trajectory'),
+            Line2D([0], [0], marker='o', color='black', markerfacecolor=cnn_color,
+                   markersize=8, linestyle='None', label='CNN start'),
+            Line2D([0], [0], marker='s', color='black', markerfacecolor=gru_color,
+                   markersize=8, linestyle='None', label='GRU start'),
+            Line2D([0], [0], marker='D', color='black', markerfacecolor='orange',
+                   markersize=8, linestyle='None', label='Min val loss (filled=CNN, outline=GRU)'),
+            Line2D([0], [0], marker='*', color='black', markerfacecolor='red',
+                   markersize=10, linestyle='None', label='Final val loss (filled=CNN, outline=GRU)')
+        ]
+        ax.legend(handles=legend_elements, fontsize=9, loc='best')
+
+        plt.tight_layout()
+
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            print(f"  Saved to {save_path}")
+
+        return fig, {'cnn': cnn_embed, 'gru': gru_embed, 'epochs': epochs}
+
+def _pad_weights_to_length(weight_matrix, target_size):
+    """Pad flattened weight matrix with zeros so shapes align across runs."""
+    if weight_matrix.shape[1] == target_size:
+        return weight_matrix
+    pad_amount = target_size - weight_matrix.shape[1]
+    if pad_amount < 0:
+        raise ValueError("target_size must be at least as large as the current weight dimension")
+    return np.pad(weight_matrix, ((0, 0), (0, pad_amount)), mode='constant', constant_values=0.0)
+
+
+def _manual_pca_projection(matrix, target_dim):
+    """Project samples into a PCA subspace without constructing huge feature matrices."""
+    n_samples, n_features = matrix.shape
+    target_dim = int(max(1, min(target_dim, n_samples - 1, n_features)))
+    if target_dim <= 0:
+        raise ValueError("target_dim must be positive after adjustment")
+
+    data = np.array(matrix, dtype=np.float32, copy=True)
+    mean = data.mean(axis=0, keepdims=True, dtype=np.float64).astype(np.float32)
+    data -= mean
+
+    gram = data @ data.T
+    gram = gram.astype(np.float64)
+
+    eigvals, eigvecs = np.linalg.eigh(gram)
+    order = np.argsort(eigvals)[::-1]
+    eigvals = eigvals[order]
+    eigvecs = eigvecs[:, order]
+
+    positive = eigvals > 1e-9
+    keep = int(min(target_dim, np.count_nonzero(positive)))
+    if keep == 0:
+        reduced = np.zeros((n_samples, 1), dtype=np.float32)
+        return reduced, "PCA spectrum collapsed; returning zero embedding."
+
+    eigvals = eigvals[:keep]
+    eigvecs = eigvecs[:, :keep]
+    scales = np.sqrt(np.clip(eigvals, a_min=0.0, a_max=None))
+    reduced = eigvecs * scales
+    return reduced.astype(np.float32), f"Manual PCA reduced weights to {keep} dimensions."
+
+
+def _adjust_embedding(run_embed, strategy):
+    """Optionally center or normalize trajectory embedding for readability."""
+    if strategy == 'anchor':
+        return run_embed - run_embed[0]
+    if strategy == 'normalize':
+        anchored = run_embed - run_embed[0]
+        max_dist = np.linalg.norm(anchored, axis=1).max()
+        if max_dist > 0:
+            anchored = anchored / max_dist
+        return anchored
+    return run_embed
+
+
+def _create_ablation_animation(ax, run_data, component, animation_path, fps=2):
+    """Create a simple epoch-sweep animation highlighting each run's current checkpoint."""
+    if not animation_path:
+        return
+
+    unique_epochs = sorted({epoch for entry in run_data for epoch in entry['epochs']})
+    if len(unique_epochs) < 2:
+        print("Not enough epochs to build an animation; skipping.")
+        return
+
+    fig = ax.figure
+    highlight_markers = []
+    for entry in run_data:
+        marker = ax.scatter([], [], s=260, marker='o', edgecolors='black', linewidths=1.2,
+                            facecolors=[entry['color']], zorder=15, alpha=0.95)
+        marker.set_visible(False)
+        highlight_markers.append(marker)
+
+    epoch_text = ax.text(0.02, 0.97, '', transform=ax.transAxes,
+                         fontsize=12, fontweight='bold', va='top')
+
+    def update(frame_idx):
+        epoch = unique_epochs[frame_idx]
+        epoch_text.set_text(f'Epoch {epoch}')
+        for entry, marker in zip(run_data, highlight_markers):
+            available = [i for i, ep in enumerate(entry['epochs']) if ep <= epoch]
+            if not available:
+                marker.set_visible(False)
+                continue
+            idx = available[-1]
+            position = entry['embedding'][idx]
+            marker.set_offsets(np.array([[position[0], position[1]]]))
+            marker.set_sizes([240 if idx == len(entry['epochs']) - 1 else 200])
+            marker.set_visible(True)
+        return highlight_markers + [epoch_text]
+
+    interval = max(200, int(1000 / max(1, fps)))
+    anim = FuncAnimation(fig, update, frames=len(unique_epochs), interval=interval, blit=False)
+    animation_path = Path(animation_path)
+    animation_path.parent.mkdir(parents=True, exist_ok=True)
+    anim.save(animation_path, dpi=150, writer='pillow')
+    print(f"  Saved animation to {animation_path}")
+
+
+def visualize_ablation_weight_trajectories(checkpoint_dirs, component='cnn', device='cpu',
+                                           save_path=None, animation_path=None, max_knn=8,
+                                           center_strategy='none', epoch_min=None,
+                                           epoch_max=None, epoch_stride=1, phate_n_pca=None,
+                                           phate_knn=None, phate_t=None, phate_decay=None):
+    """Compare weight trajectories from multiple checkpoint directories in one PHATE embedding.
+
+    Args:
+        phate_n_pca: Optional PCA dimension applied before PHATE; defaults to auto-selection.
+        phate_knn: Optional PHATE knn override.
+        phate_t: Optional diffusion time.
+        phate_decay: Optional decay parameter.
+    """
+    if component not in {'cnn', 'gru'}:
+        raise ValueError("component must be 'cnn' or 'gru'")
+
+    path_list = [Path(cp).expanduser() for cp in checkpoint_dirs]
+    if len(path_list) < 2:
+        raise ValueError("Provide at least two checkpoint directories for ablation comparison")
+
+    run_data = []
+    max_dim = 0
+    for cp_path in path_list:
+        viz = TrajectoryVisualizer(cp_path, device)
+        checkpoints = viz.load_checkpoints()
+        checkpoints, epochs = viz._filter_checkpoints(checkpoints, epoch_min, epoch_max, epoch_stride)
+        if component == 'cnn':
+            weights = viz.extract_cnn_weights(checkpoints)
+        else:
+            weights = viz.extract_gru_weights(checkpoints)
+        descriptor = f"k={viz.kernel_size}, c={viz.cnn_channels}, gru={viz.gru_hidden}"
+        run_label = f"{cp_path.name} ({descriptor})"
+
+        max_dim = max(max_dim, weights.shape[1])
+        run_data.append({
+            'path': cp_path,
+            'weights': weights,
+            'epochs': epochs,
+            'label': run_label,
+            'markers': viz._collect_validation_markers(epochs)
+        })
+
+    if max_dim == 0:
+        raise ValueError("Unable to determine weight dimensionality for ablation embedding")
+
+    padded_weights = []
+    for entry in run_data:
+        padded = _pad_weights_to_length(entry['weights'], max_dim)
+        entry['weights'] = padded
+        padded_weights.append(padded)
+
+    stacked = np.vstack(padded_weights).astype(np.float32, copy=False)
+    if stacked.shape[0] < 2:
+        raise ValueError("Need at least two weight snapshots for PHATE embedding")
+
+    knn, knn_msg = TrajectoryVisualizer._resolve_phate_knn(
+        stacked.shape[0], default_max=max_knn, requested=phate_knn)
+    if knn_msg:
+        print(f"  {knn_msg}")
+    resolved_n_pca, info_msg = TrajectoryVisualizer._resolve_phate_n_pca(
+        stacked.shape[1], stacked.shape[0], phate_n_pca)
+    phate_input = stacked
+    if resolved_n_pca:
+        if info_msg:
+            print(f"  {info_msg}")
+        phate_input, manual_msg = _manual_pca_projection(stacked, resolved_n_pca)
+        if manual_msg:
+            print(f"  {manual_msg}")
+
+    phate_op = phate.PHATE(
+        n_components=2,
+        knn=knn,
+        t=phate_t if phate_t is not None else 10,
+        decay=phate_decay if phate_decay is not None else 40,
+        verbose=False,
+        n_pca=None
+    )
+    embedding = phate_op.fit_transform(phate_input)
+
+    fig, ax = plt.subplots(figsize=(10, 8))
+    cmap = plt.colormaps['tab20'].resampled(max(len(run_data), 1))
+    color_samples = cmap(np.linspace(0, 1, len(run_data))) if run_data else np.empty((0, 4))
+    min_label_used = False
+    final_label_used = False
+
+    cursor = 0
+    for idx, entry in enumerate(run_data):
+        count = entry['weights'].shape[0]
+        run_embed = embedding[cursor:cursor + count]
+        cursor += count
+
+        run_embed = _adjust_embedding(run_embed, center_strategy)
+        entry['embedding'] = run_embed
+        entry['color'] = (tuple(color_samples[idx])
+                          if len(color_samples) else '#1f77b4')
+
+        line_color = entry['color']
+        ax.plot(run_embed[:, 0], run_embed[:, 1], '-', color=line_color, linewidth=2,
+                alpha=0.75, label=entry['label'])
+        ax.scatter(run_embed[:, 0], run_embed[:, 1], c=[line_color], s=70, alpha=0.65,
+                   edgecolors='black', linewidths=0.6)
+
+        ax.scatter(run_embed[0, 0], run_embed[0, 1], c=[line_color], s=160, marker='o',
+                   edgecolors='black', linewidths=1.2, zorder=10)
+
+        markers = entry.get('markers', {})
+        if 'min' in markers:
+            m = markers['min']
+            idx_min = m['index']
+            label = None
+            if not min_label_used:
+                label = f"Min val loss (epoch {m['epoch']}, loss {m['loss']:.4f})"
+                min_label_used = True
+            ax.scatter(run_embed[idx_min, 0], run_embed[idx_min, 1], c='orange', s=200, marker='D',
+                       edgecolors='black', linewidths=1.4, zorder=12, label=label)
+
+        if 'final' in markers:
+            m = markers['final']
+            idx_final = m['index']
+            label = None
+            if not final_label_used:
+                label = f"Final val loss (epoch {m['epoch']}, loss {m['loss']:.4f})"
+                final_label_used = True
+            ax.scatter(run_embed[idx_final, 0], run_embed[idx_final, 1], c='red', s=220, marker='*',
+                       edgecolors='black', linewidths=1.6, zorder=12, label=label)
+        else:
+            ax.scatter(run_embed[-1, 0], run_embed[-1, 1], c=[line_color], s=180, marker='*',
+                       edgecolors='black', linewidths=1.2, zorder=10)
+
+        epochs = entry['epochs']
+        step = max(1, len(epochs) // 5)
+        for j in range(0, len(run_embed), step):
+            ax.annotate(f"Ep {epochs[j]}", (run_embed[j, 0], run_embed[j, 1]), fontsize=8,
+                        xytext=(4, 4), textcoords='offset points')
+        ax.annotate(f"Ep {epochs[-1]}", (run_embed[-1, 0], run_embed[-1, 1]), fontsize=8,
+                    xytext=(4, 4), textcoords='offset points')
+
+    comp_title = 'CNN' if component == 'cnn' else 'GRU'
+    ax.set_xlabel('PHATE 1', fontsize=12)
+    ax.set_ylabel('PHATE 2', fontsize=12)
+    ax.set_title(f'{comp_title} Weight Trajectories Across Ablations', fontsize=14, fontweight='bold')
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=9, loc='best')
+
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+
+    _create_ablation_animation(ax, run_data, component, animation_path)
+
+    return fig, embedding, run_data
 
 
 def generate_random_boards(n_boards=100):
@@ -424,39 +1262,166 @@ def generate_random_boards(n_boards=100):
 def main():
     parser = argparse.ArgumentParser(description="Visualize weight trajectories using PHATE")
 
-    parser.add_argument("--checkpoint-dir", type=str, required=True,
+    parser.add_argument("--checkpoint-dir", type=str,
                        help="Directory containing checkpoints")
+    parser.add_argument("--ablation-dirs", type=str, nargs='+',
+                       help="List of checkpoint directories for ablation comparison")
     parser.add_argument("--output-dir", type=str, default="visualizations",
                        help="Directory to save visualizations")
     parser.add_argument("--viz-type", type=str, default="all",
-                       choices=["all", "cnn", "gru", "boards", "summary"],
+                       choices=["all", "cnn", "gru", "boards", "summary", "joint", "ablation-cnn", "ablation-gru", "activations"],
                        help="Type of visualization to create")
     parser.add_argument("--n-boards", type=int, default=100,
                        help="Number of random boards for representation viz")
+    parser.add_argument("--ablation-animate", action='store_true',
+                       help="Produce a GIF animation for ablation visualizations")
+    parser.add_argument("--ablation-center", choices=["none", "anchor", "normalize"], default="none",
+                       help="Post-process ablation embeddings to emphasise relative paths")
+    parser.add_argument("--joint-center", choices=["none", "anchor", "normalize"], default="none",
+                       help="Post-process joint CNN/GRU embeddings")
+    parser.add_argument("--activation-target", choices=['policy', 'value'], default='policy',
+                       help="Grad-CAM target for activation maps")
+    parser.add_argument("--activation-move", type=int,
+                       help="Optional policy move index to focus Grad-CAM on (0-6)")
+    parser.add_argument("--activation-max-examples", type=int, default=4,
+                       help="Maximum number of activation maps to export")
+    parser.add_argument("--epoch-min", type=int,
+                       help="Minimum epoch to include (inclusive)")
+    parser.add_argument("--epoch-max", type=int,
+                       help="Maximum epoch to include (inclusive)")
+    parser.add_argument("--epoch-step", type=int, default=1,
+                       help="Stride when sampling checkpoints (1 = use every checkpoint)")
+    parser.add_argument("--phate-n-pca", type=int,
+                       help="Optional PCA dimension before PHATE (auto-selects for high-dimensional weights)")
+    parser.add_argument("--phate-knn", type=int,
+                       help="Optional override for PHATE knn (neighbourhood size)")
+    parser.add_argument("--phate-t", type=int,
+                       help="Optional PHATE diffusion time (higher emphasises global structure)")
+    parser.add_argument("--phate-decay", type=float,
+                       help="Optional PHATE decay parameter controlling kernel tail (default 'auto')")
 
     args = parser.parse_args()
 
-    # Create output directory
+    if args.viz_type in {"ablation-cnn", "ablation-gru"}:
+        if not args.ablation_dirs or len(args.ablation_dirs) < 2:
+            parser.error("--ablation-dirs requires at least two directories for ablation visualizations")
+    elif args.viz_type == "activations":
+        if not args.checkpoint_dir:
+            parser.error("--checkpoint-dir is required for activation visualizations")
+    else:
+        if not args.checkpoint_dir:
+            parser.error("--checkpoint-dir is required for this viz-type")
+
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Create visualizer
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    epoch_min = args.epoch_min
+    epoch_max = args.epoch_max
+    epoch_stride = args.epoch_step if args.epoch_step and args.epoch_step > 0 else 1
+
+    if args.viz_type in {"ablation-cnn", "ablation-gru"}:
+        component = 'cnn' if args.viz_type == "ablation-cnn" else 'gru'
+        print("\n" + "="*60)
+        print(f"Ablation {component.upper()} Weight Trajectories")
+        print("="*60)
+        animation_path = None
+        if args.ablation_animate:
+            animation_path = output_dir / f"ablation_{component}_trajectories.gif"
+        fig, _, run_data = visualize_ablation_weight_trajectories(
+            args.ablation_dirs,
+            component=component,
+            device=device,
+            save_path=output_dir / f"ablation_{component}_trajectories.png",
+            animation_path=animation_path,
+            center_strategy=args.ablation_center,
+            epoch_min=epoch_min,
+            epoch_max=epoch_max,
+            epoch_stride=epoch_stride,
+            phate_n_pca=args.phate_n_pca,
+            phate_knn=args.phate_knn,
+            phate_t=args.phate_t,
+            phate_decay=args.phate_decay
+        )
+        plt.close(fig)
+
+        print("Compared runs:")
+        for entry in run_data:
+            print(f"  - {entry['label']}")
+
+        print("\n" + "="*60)
+        print(f"✓ Visualizations saved to {output_dir}")
+        print("="*60)
+        return
+
     viz = TrajectoryVisualizer(args.checkpoint_dir, device)
 
-    # Generate visualizations
+    if args.viz_type == "activations":
+        print("\n" + "="*60)
+        print("CNN Activation Maps (Grad-CAM)")
+        print("="*60)
+        boards = generate_random_boards(args.n_boards)
+        checkpoint_path = viz.get_latest_checkpoint_path()
+        viz.visualize_cnn_activations(
+            boards,
+            checkpoint_path,
+            save_dir=output_dir / "activations",
+            target=args.activation_target,
+            move=args.activation_move,
+            max_examples=args.activation_max_examples
+        )
+        print("\n" + "="*60)
+        print(f"✓ Activation maps saved to {output_dir / 'activations'}")
+        print("="*60)
+        return
+
+    if args.viz_type == "joint":
+        print("\n" + "="*60)
+        print("Joint CNN/GRU Trajectory")
+        print("="*60)
+        fig, _ = viz.visualize_joint_cnn_gru(
+            save_path=output_dir / "cnn_gru_joint.png",
+            epoch_min=epoch_min,
+            epoch_max=epoch_max,
+            epoch_stride=epoch_stride,
+            center_strategy=args.joint_center,
+            phate_n_pca=args.phate_n_pca,
+            phate_knn=args.phate_knn,
+            phate_t=args.phate_t,
+            phate_decay=args.phate_decay
+        )
+        plt.close(fig)
+        print("\n" + "="*60)
+        print(f"✓ Visualizations saved to {output_dir}")
+        print("="*60)
+        return
+
     if args.viz_type in ["all", "cnn"]:
         print("\n" + "="*60)
         print("CNN Weight Trajectory")
         print("="*60)
-        viz.visualize_cnn_trajectory(save_path=output_dir / "cnn_trajectory.png")
+        viz.visualize_cnn_trajectory(save_path=output_dir / "cnn_trajectory.png",
+                                     epoch_min=epoch_min,
+                                     epoch_max=epoch_max,
+                                     epoch_stride=epoch_stride,
+                                     phate_n_pca=args.phate_n_pca,
+                                     phate_knn=args.phate_knn,
+                                     phate_t=args.phate_t,
+                                     phate_decay=args.phate_decay)
         plt.close()
 
     if args.viz_type in ["all", "gru"]:
         print("\n" + "="*60)
         print("GRU Weight Trajectory")
         print("="*60)
-        viz.visualize_gru_trajectory(save_path=output_dir / "gru_trajectory.png")
+        viz.visualize_gru_trajectory(save_path=output_dir / "gru_trajectory.png",
+                                     epoch_min=epoch_min,
+                                     epoch_max=epoch_max,
+                                     epoch_stride=epoch_stride,
+                                     phate_n_pca=args.phate_n_pca,
+                                     phate_knn=args.phate_knn,
+                                     phate_t=args.phate_t,
+                                     phate_decay=args.phate_decay)
         plt.close()
 
     if args.viz_type in ["all", "boards"]:
@@ -464,7 +1429,7 @@ def main():
         print("Board State Representations")
         print("="*60)
         boards = generate_random_boards(args.n_boards)
-        checkpoint_path = sorted(viz.checkpoint_dir.glob("weights_epoch_*.pt"))[-1]
+        checkpoint_path = viz.get_latest_checkpoint_path()
         viz.visualize_board_representations(boards, checkpoint_path,
                                            save_path=output_dir / "board_representations.png")
         plt.close()
@@ -473,7 +1438,13 @@ def main():
         print("\n" + "="*60)
         print("Summary Visualization")
         print("="*60)
-        fig = viz.create_summary_plot()
+        fig = viz.create_summary_plot(epoch_min=epoch_min,
+                                      epoch_max=epoch_max,
+                                      epoch_stride=epoch_stride,
+                                      phate_n_pca=args.phate_n_pca,
+                                      phate_knn=args.phate_knn,
+                                      phate_t=args.phate_t,
+                                      phate_decay=args.phate_decay)
         fig.savefig(output_dir / "summary.png", dpi=300, bbox_inches='tight')
         plt.close()
 
