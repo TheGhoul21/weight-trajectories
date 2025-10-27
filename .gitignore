@@ -12,8 +12,18 @@ data/*.json
 checkpoints/
 models/*.pt
 artifacts/
-visualizations/
 ablation_study/outputs/
+visualizations2/
+
+# Analysis outputs (regenerable via wizard)
+diagnostics/
+visualizations/
+*.csv
+!data/*.csv  # Keep original data CSVs
+
+# Keep key documentation
+!CLEANUP_PLAN.md
+!TRAJECTORY_COMPARISON_GUIDE.md
 
 # External repository (not tracked as submodule)
 dataset/
@@ -37,6 +47,14 @@ Thumbs.db
 
 .venv/
 
+# Local caches/configs
+.cache/
+.mplconfig/
+.fontconfig/
+.claude/
+Library/
+Library/Caches/
+
 # LaTeX
 *.aux
 *.log
@@ -50,3 +68,8 @@ Thumbs.db
 # UV
 .uv/
 .uv_logs/
+
+*.egg-info
+
+# Models exports
+models/*.onnx
