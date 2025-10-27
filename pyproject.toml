@@ -12,4 +12,6 @@ dependencies = [
     "seaborn>=0.12",
     "tqdm>=4.65",
     "phate>=1.0.10",
+    "scikit-learn>=1.4",
+    "umap-learn>=0.5",
 ]

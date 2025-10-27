@@ -26,18 +26,24 @@ weight-trajectories/
 
 ## Quick Start
 
+### 0. Explore the CLI
+
+All tooling now hangs off `wt.sh`. Run `./wt.sh help` for the command menu. Set `PYTHON_BIN` if you need a specific interpreter.
+
+```bash
+./wt.sh help
+```
+
 ### 1. Generate Dataset
 
 **Test run** (20 games, 2 CPUs, ~20 seconds):
 ```bash
-dataset/Alpha-Zero-algorithm-for-Connect-4-game/.venv/bin/python3 \
-  scripts/generate_connect4_dataset.py --test-run
+./wt.sh dataset flat --test-run
 ```
 
 **Full dataset** (10,000 games, 4 CPUs, ~1.5 hours):
 ```bash
-dataset/Alpha-Zero-algorithm-for-Connect-4-game/.venv/bin/python3 \
-  scripts/generate_connect4_dataset.py \
+./wt.sh dataset flat \
   --num-games 10000 \
   --cpus 4 \
   --simulations 200
@@ -46,14 +52,14 @@ dataset/Alpha-Zero-algorithm-for-Connect-4-game/.venv/bin/python3 \
 ### 2. Test Model Architecture
 
 ```bash
-dataset/Alpha-Zero-algorithm-for-Connect-4-game/.venv/bin/python3 src/model.py
+./wt.sh model
 ```
 
 ### 3. Train Models
 
 **Single model:**
 ```bash
-dataset/Alpha-Zero-algorithm-for-Connect-4-game/.venv/bin/python3 src/train.py \
+./wt.sh train \
   --data data/connect4_10k_games.pt \
   --cnn-channels 16 64 256 \
   --gru-hidden 32 \
@@ -63,7 +69,7 @@ dataset/Alpha-Zero-algorithm-for-Connect-4-game/.venv/bin/python3 src/train.py \
 
 **All three configurations:**
 ```bash
-./scripts/train_all_models.sh
+./wt.sh train-all --data data/connect4_10k_games.pt
 ```
 
 ## Model Architecture
