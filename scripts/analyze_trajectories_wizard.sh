@@ -168,10 +168,19 @@ echo "Step 3/4: Generating comprehensive visualizations"
 echo "================================================================================"
 echo
 
+echo "Running unified visualization suite..."
 "${PYTHON_BIN}" scripts/visualize_unified.py \
     --metrics-dir "${OUTPUT_DIR}" \
     --checkpoint-dir "${CHECKPOINT_BASE}" \
     --output-dir "${VIZ_DIR}"
+
+echo
+echo "Running PHATE metric-space embedding..."
+"${PYTHON_BIN}" scripts/visualize_trajectory_embedding.py \
+    --metrics-dir "${OUTPUT_DIR}" \
+    --checkpoint-dir "${CHECKPOINT_BASE}" \
+    --output-dir "${VIZ_DIR}/metric_embeddings_phate" \
+    --method phate
 
 echo
 echo "✓ Visualizations generated"
@@ -202,10 +211,12 @@ echo
 echo "Outputs:"
 echo "  📊 Metrics:        ${OUTPUT_DIR}/*.csv"
 echo "  📈 Visualizations: ${VIZ_DIR}/*.png"
+echo "                       ${VIZ_DIR}/metric_embeddings_phate/*.png"
 echo "  📝 Report:         ${OUTPUT_DIR}/ANALYSIS_REPORT.md"
 echo
 echo "Quick start:"
 echo "  Read:  ${OUTPUT_DIR}/ANALYSIS_REPORT.md"
 echo "  View:  open ${VIZ_DIR}/*.png"
+echo "         open ${VIZ_DIR}/metric_embeddings_phate/*.png"
 echo
 echo "================================================================================"

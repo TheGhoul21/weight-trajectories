@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Metric-Space UMAP Embedding of Learning Trajectories.
+Metric-space embedding of learning trajectories using UMAP, t-SNE, or PHATE.
 
 Embeds all 9 models' trajectories into a shared 2D space using architecture-agnostic metrics.
 This allows direct comparison across different model configurations.
@@ -14,13 +14,21 @@ from pathlib import Path
 import json
 import argparse
 
-# Try to import UMAP, fall back to t-SNE if not available
+# Try to import UMAP, fall back to other methods if not available
 try:
     from umap import UMAP
     HAS_UMAP = True
 except ImportError:
     HAS_UMAP = False
-    from sklearn.manifold import TSNE
+    UMAP = None
+
+try:
+    import phate
+    HAS_PHATE = True
+except ImportError:
+    HAS_PHATE = False
+
+from sklearn.manifold import TSNE
 
 from sklearn.preprocessing import StandardScaler
 
@@ -118,21 +126,45 @@ def create_feature_matrix(df):
     return X_scaled, available_features
 
 def embed_trajectories(X, method='umap', n_neighbors=15, min_dist=0.1):
-    """Embed trajectories using UMAP or t-SNE."""
+    """Embed trajectories using UMAP, t-SNE, or PHATE."""
 
-    if method == 'umap' and HAS_UMAP:
-        print(f"Using UMAP (n_neighbors={n_neighbors}, min_dist={min_dist})")
-        reducer = UMAP(n_neighbors=n_neighbors, min_dist=min_dist, random_state=42)
-    else:
-        if method == 'umap' and not HAS_UMAP:
+    method = (method or 'umap').lower()
+
+    if method == 'phate':
+        if HAS_PHATE:
+            knn = max(2, n_neighbors)
+            print(f"Using PHATE (knn={knn})")
+            reducer = phate.PHATE(n_components=2, knn=knn, random_state=42, verbose=False)
+            return reducer.fit_transform(X)
+        else:
+            print("PHATE not available, falling back to UMAP/t-SNE")
+            method = 'umap'
+
+    if method == 'umap':
+        if HAS_UMAP:
+            print(f"Using UMAP (n_neighbors={n_neighbors}, min_dist={min_dist})")
+            reducer = UMAP(n_neighbors=n_neighbors, min_dist=min_dist, random_state=42)
+            return reducer.fit_transform(X)
+        else:
             print("UMAP not available, falling back to t-SNE")
+            method = 'tsne'
+
+    if method == 'tsne':
         print("Using t-SNE (perplexity=30)")
-        reducer = TSNE(n_components=2, perplexity=30, random_state=42)
+        return TSNE(n_components=2, perplexity=30, random_state=42).fit_transform(X)
 
-    embedding = reducer.fit_transform(X)
-    return embedding
+    raise ValueError(f"Unsupported embedding method '{method}'.")
 
-def plot_embedding_by_model(df, embedding, output_dir):
+def _pretty_method_name(method: str) -> str:
+    mapping = {
+        'umap': 'UMAP',
+        'tsne': 't-SNE',
+        'phate': 'PHATE',
+    }
+    return mapping.get((method or '').lower(), method.upper())
+
+
+def plot_embedding_by_model(df, embedding, output_dir, method):
     """Plot embedding colored by model."""
     fig, ax = plt.subplots(figsize=(16, 12))
 
@@ -174,9 +206,10 @@ def plot_embedding_by_model(df, embedding, output_dir):
     # Add colorbar for epoch
     cbar = plt.colorbar(scatter, ax=ax, label='Epoch')
 
-    ax.set_xlabel('UMAP Dimension 1', fontsize=12)
-    ax.set_ylabel('UMAP Dimension 2', fontsize=12)
-    ax.set_title('Learning Trajectories in Metric Space\n' +
+    method_name = _pretty_method_name(method)
+    ax.set_xlabel(f'{method_name} Dimension 1', fontsize=12)
+    ax.set_ylabel(f'{method_name} Dimension 2', fontsize=12)
+    ax.set_title(f'Learning Trajectories in Metric Space ({method_name})\n' +
                  'Connect-4 as a Testbed: 9 Model Configurations',
                  fontsize=14, fontweight='bold')
     ax.grid(True, alpha=0.2)
@@ -202,9 +235,10 @@ def plot_embedding_by_model(df, embedding, output_dir):
     print(f"Saved: {output_path}")
     plt.close()
 
-def plot_embedding_faceted(df, embedding, output_dir):
+def plot_embedding_faceted(df, embedding, output_dir, method):
     """Plot embedding faceted by GRU size."""
     fig, axes = plt.subplots(1, 3, figsize=(20, 6), sharex=True, sharey=True)
+    method_name = _pretty_method_name(method)
 
     for idx, gru_size in enumerate(GRU_SIZES):
         ax = axes[idx]
@@ -236,16 +270,16 @@ def plot_embedding_faceted(df, embedding, output_dir):
                        fontsize=9, fontweight='bold',
                        color=color, ha='center')
 
-        ax.set_xlabel('UMAP Dimension 1', fontsize=11)
+        ax.set_xlabel(f'{method_name} Dimension 1', fontsize=11)
         if idx == 0:
-            ax.set_ylabel('UMAP Dimension 2', fontsize=11)
+            ax.set_ylabel(f'{method_name} Dimension 2', fontsize=11)
         ax.set_title(f'GRU{gru_size}', fontsize=13, fontweight='bold')
         ax.grid(True, alpha=0.3)
 
     # Shared colorbar
     cbar = fig.colorbar(scatter, ax=axes, label='Epoch', pad=0.01)
 
-    plt.suptitle('Learning Trajectories by GRU Size\n' +
+    plt.suptitle(f'Learning Trajectories by GRU Size ({method_name})\n' +
                  'Connect-4 as a Testbed: Channel Count Effects',
                  fontsize=14, fontweight='bold', y=1.02)
     plt.tight_layout()
@@ -255,15 +289,17 @@ def plot_embedding_faceted(df, embedding, output_dir):
     print(f"Saved: {output_path}")
     plt.close()
 
-def plot_embedding_3d_animation(df, embedding, output_dir):
+def plot_embedding_3d_animation(df, output_dir, method, n_neighbors):
     """Create animated 3D embedding (optional, if matplotlib 3D available)."""
     try:
         from mpl_toolkits.mplot3d import Axes3D
         from sklearn.decomposition import PCA
 
         # Create 3D embedding
-        if HAS_UMAP:
-            reducer = UMAP(n_components=3, n_neighbors=15, random_state=42)
+        if method == 'phate' and HAS_PHATE:
+            reducer = phate.PHATE(n_components=3, knn=max(2, n_neighbors), random_state=42, verbose=False)
+        elif method == 'umap' and HAS_UMAP:
+            reducer = UMAP(n_components=3, n_neighbors=n_neighbors, random_state=42)
         else:
             reducer = PCA(n_components=3)
 
@@ -301,7 +337,8 @@ def plot_embedding_3d_animation(df, embedding, output_dir):
         ax.set_xlabel('Dimension 1')
         ax.set_ylabel('Dimension 2')
         ax.set_zlabel('Dimension 3')
-        ax.set_title('3D Learning Trajectory Embedding\n' +
+        method_name = _pretty_method_name(method)
+        ax.set_title(f'3D Learning Trajectory Embedding ({method_name})\n' +
                     'Connect-4 as a Testbed',
                     fontsize=13, fontweight='bold')
 
@@ -342,7 +379,7 @@ def main():
     parser.add_argument('--metrics-dir', default='diagnostics/trajectory_analysis')
     parser.add_argument('--checkpoint-dir', default='checkpoints/save_every_3')
     parser.add_argument('--output-dir', default='visualizations')
-    parser.add_argument('--method', choices=['umap', 'tsne'], default='umap')
+    parser.add_argument('--method', choices=['umap', 'tsne', 'phate'], default='umap')
     parser.add_argument('--n-neighbors', type=int, default=15)
     parser.add_argument('--min-dist', type=float, default=0.1)
     args = parser.parse_args()
@@ -374,9 +411,9 @@ def main():
 
     # Generate visualizations
     print("\nGenerating visualizations...")
-    plot_embedding_by_model(df, embedding, output_dir)
-    plot_embedding_faceted(df, embedding, output_dir)
-    plot_embedding_3d_animation(df, embedding, output_dir)
+    plot_embedding_by_model(df, embedding, output_dir, args.method)
+    plot_embedding_faceted(df, embedding, output_dir, args.method)
+    plot_embedding_3d_animation(df, output_dir, args.method, args.n_neighbors)
 
     # Analyze clusters
     analyze_clusters(df, embedding)
