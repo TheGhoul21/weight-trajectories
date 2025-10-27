@@ -11,9 +11,7 @@ data/*.npz
 data/*.json
 checkpoints/
 models/*.pt
-artifacts/*
-!artifacts/*.onnx
-!artifacts/.gitkeep
+artifacts/
 ablation_study/outputs/
 visualizations2/
 
@@ -73,5 +71,5 @@ Library/Caches/
 
 *.egg-info
 
-# Allow ONNX models to be tracked
-# (default exporter writes to artifacts/, see exceptions above)
+# Models exports (ignore ONNX debug files)
+models/*.onnx
