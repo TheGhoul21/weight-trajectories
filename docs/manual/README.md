@@ -1,13 +1,25 @@
-# wt.sh User Guide
+# wt.sh User Manual
 
-This is your complete, practical handbook for the wt tool — the single entrypoint that orchestrates dataset generation, training, diagnostics, visualizations, reports, and exports for the weight-trajectories project.
+Complete practical handbook for the `wt` tool — the single entrypoint for dataset generation, training, diagnostics, visualizations, and analysis.
 
-- Audience: researchers/engineers running experiments and visualizations.
-- Scope: every command and option, what it reads/writes, and a plot/CSV explainer for all artifacts.
+**Audience**: Researchers and engineers running experiments
+**Scope**: Every command, option, output, and plot interpretation
 
-Quick start:
+---
+
+## Navigation
+
+**Looking for**:
+- **Scientific background?** → [`../scientific/`](../scientific/) (theory, literature reviews)
+- **Architecture diagrams?** → [`../reference/architecture_diagrams.md`](../reference/architecture_diagrams.md)
+- **Main docs index?** → [`../README.md`](../README.md)
+
+---
+
+## Quick Start
 - Print available commands: `./wt.sh help`
-- See Python used: `./wt.sh python-path`
+- See Python interpreter: `./wt.sh python-path`
+- **Complete workflow**: [GRU Interpretability Pipeline](./workflows/gru_interpretability.md)
 
 Contents
 - Commands (how to run, options, defaults, inputs/outputs)
@@ -24,7 +36,7 @@ Contents
   - [report](./commands/report.md)
   - [onnx](./commands/onnx.md)
   - [python-path](./commands/python-path.md)
-- Plots and CSVs (what you’re looking at and how to read it)
+- Plots and CSVs (what you're looking at and how to read it)
   - [Checkpoint metrics CSV](./plots/checkpoint_metrics_csv.md)
   - [Unified visualization suite](./plots/visualize_unified.md)
   - [Metric-space trajectory embeddings](./plots/trajectory_metric_space.md)
@@ -34,6 +46,8 @@ Contents
   - [GRU mutual information](./plots/gru_mutual_info.md)
   - [GRU fixed points + evolution](./plots/fixed_points.md)
   - [CNN activation maps](./plots/activations.md)
+- Workflows (end-to-end analysis guides)
+  - [GRU interpretability pipeline](./workflows/gru_interpretability.md)
 
 Conventions
 - Checkpoints live under `checkpoints/` (often `checkpoints/save_every_3/<model>/weights_epoch_XXXX.pt`).
