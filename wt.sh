@@ -69,6 +69,7 @@ Common commands:
   cka wizard               Launch interactive CKA wizard
   embeddings [args]        Analyze weight embeddings
   trajectory-embedding     Create UMAP-style trajectory plots
+  observability [subcmd]   GRU observability pipeline (extract|analyze)
   visualize [args]         Run visualization suite (run_visualization_suite.py)
   report [args]            Generate markdown/LaTeX report (generate_report.py)
   onnx [args]              Export a trained model to ONNX
@@ -190,6 +191,31 @@ cmd_trajectory_embedding() {
   run_with_python "${SCRIPTS_DIR}/visualize_trajectory_embedding.py" "$@"
 }
 
+cmd_observability() {
+  local sub="${1:-extract}"
+  shift || true
+
+  case "${sub}" in
+    extract)
+      run_with_python "${SCRIPTS_DIR}/extract_gru_dynamics.py" "$@"
+      ;;
+    analyze|summarize)
+      run_with_python "${SCRIPTS_DIR}/analyze_gru_observability_results.py" "$@"
+      run_with_python "${SCRIPTS_DIR}/compute_hidden_mutual_info.py" "$@"
+      ;;
+    fixed)
+      run_with_python "${SCRIPTS_DIR}/find_gru_fixed_points.py" "$@"
+      ;;
+    evolve|evolution)
+      run_with_python "${SCRIPTS_DIR}/analyze_fixed_point_evolution.py" "$@"
+      ;;
+    *)
+      echo "Unknown observability subcommand '${sub}'. Use extract or analyze." >&2
+      exit 1
+      ;;
+  esac
+}
+
 cmd_visualize() {
   if [[ "${1:-}" == "wizard" ]]; then
     shift
@@ -253,6 +279,9 @@ main() {
       ;;
     trajectory-embedding)
       cmd_trajectory_embedding "$@"
+      ;;
+    observability)
+      cmd_observability "$@"
       ;;
     visualize)
       cmd_visualize "$@"
