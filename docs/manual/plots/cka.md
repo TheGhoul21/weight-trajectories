@@ -25,5 +25,19 @@ Key options
 - --animate, --animate-fps, --animate-format [gif|mp4]
 
 Reading the plots
-- Blocks of high similarity suggest convergent representations; low similarity indicates divergent feature usage
-- Within-GRU or within-channel comparisons reveal main effects; across extremes (e.g., c16 vs c256 with GRU128) test CNN influence
+- **Heatmaps**
+  - Values in [0, 1]; 1 = identical representations on the sampled boards, 0 = orthogonal.
+  - Block structure reveals factor effects: e.g. a GRU-size block with high CKA means different channel counts behave similarly when GRU size matches.
+  - Off-diagonal lows highlight architectural combos that learn genuinely different features.
+- **Clustered view**
+  - Dendrogram groups models with similar representations; use it to summarise “families” of solutions.
+  - Large branch distance between two leaves = representations diverge strongly.
+- **Evolution plot**
+  - Track specific pairs (e.g., best baseline vs ablation). Rising curves indicate convergence during training; falling curves show divergence.
+- **Animation**
+  - Helps spot phase changes: sudden brighten/dim blocks often align with architectural turning points (e.g., post-min-loss fine-tuning).
+
+Tips
+- Compare GRU vs CNN CKA: GRU similarity reflects memory dynamics; CNN similarity focuses on spatial feature extractors.
+- Use --num-boards to balance compute vs stability—more boards smooths the estimate.
+- Keep epochs aligned with checkpoints from `save_every_3`; for a quick scan, use `--epoch-step 9` to capture 3–30–60–90–100.

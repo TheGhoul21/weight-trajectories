@@ -26,7 +26,23 @@ Common options
 - --activation-target [policy|value], --activation-move, --activation-max-examples: Grad-CAM specifics
 
 Reading the plots
-- Smooth, monotone paths often align with steady training; sharp bends suggest phase shifts
-- Broad CNN movement with compact GRU can indicate feature extractor churn with stable memory; the reverse suggests recurrent dynamics shifting
-- Joint plots help compare CNN vs GRU temporal alignment
-- Activation maps: brighter cells signal spatial regions influencing the prediction focus (policy logit or value)
+What to look for
+- **CNN / GRU trajectories**
+  - Colour progression (early dark → late bright) tracks checkpoint order.
+  - Smooth arcs = steady optimisation; zig-zags/bends = LR schedule changes, regularisation kicks, or overfitting.
+  - Compare the total path length between CNN and GRU panels: more movement means more parameter churn in that block.
+- **Summary panel**
+  - Correlate loss curves with trajectory marks (green circle = start, orange diamond = min val loss, red star = final). If the trajectory keeps moving far after min val loss, the model may be drifting into worse generalisation.
+- **Joint plot**
+  - Overlay reveals whether CNN/GRU evolve in sync (paths overlapping) or in phases (one moves while the other stays still).
+- **Ablation trajectories**
+  - Use identical colouring/annotation to compare multiple runs; if paths collapse onto each other the ablations are redundant.
+- **Board representations**
+  - Clustering by sample index indicates the GRU groups similar positions; diffuse clouds hint at entangled representations.
+- **Activation maps**
+  - As with the dedicated activations doc: bright cells = influential board regions; ensure they align with tactical expectations.
+
+Tips
+- Use `--epoch-step` to reduce PHATE compute for long runs.
+- `--ablation-center normalize` recentres trajectories, making cross-run comparisons easier when absolute positions differ.
+- When Grad-CAM is noisy, set `--activation-max-examples` to a small value and verify a few boards manually.

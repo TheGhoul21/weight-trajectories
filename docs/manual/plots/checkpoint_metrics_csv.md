@@ -33,3 +33,19 @@ Upstream knobs
 - --epoch-min/--epoch-max/--epoch-step to sub-sample epochs
 - --board-source [none|random|dataset], --board-count, --board-dataset, --board-seed
 - --top-singular-values (how many repr_topK_ratio columns to include)
+
+How to use it
+- **Weight norms**
+  - Plot `weight_norm` over epochs to check capacity growth; steep late increases often precede validation loss spikes.
+  - Compare CNN vs GRU components: diverging slopes highlight which block is still changing.
+- **Step statistics**
+  - `step_norm` + `relative_step` show how aggressively weights move. Sudden spikes usually coincide with learning-rate restarts or instability.
+  - `step_cosine` near +1 signals consistent updates; oscillations between + and − mean the optimiser is fighting the curvature.
+- **Representation SVD metrics**
+  - `repr_total_variance` ↑ means the hidden space is expanding; persistent drops can indicate collapse or saturation.
+  - `repr_top1_ratio`/`repr_topK_ratio` close to 1 denote a low-rank embedding (bad); healthy models spread variance across many components.
+
+Typical workflows
+- **Early overfitting detection**: monitor `step_norm` and `relative_step`—if they flatten while `weight_norm` still rises, the optimiser is taking tiny steps but drifting into sharper minima.
+- **Architecture comparisons**: aggregate `repr_total_variance` across models to quantify which GRU size uses more representational capacity.
+- **Checkpoint selection**: pick epochs where `repr_top1_ratio` is low (diverse representations) and `step_cosine` remains stable.
