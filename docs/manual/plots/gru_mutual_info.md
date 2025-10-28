@@ -226,6 +226,181 @@ mi_dimension_values_k3_c32_gru32.png:
 - center_control_current (0..6)
 - center_control_opponent (0..6)
 
+## Board feature extraction
+
+This section explains how the 12 features are computed from raw Connect Four board states.
+
+### Input format
+
+Board states are stored as **3-channel tensors** of shape `(3, 6, 7)`:
+- **Channel 0**: Yellow player pieces (1 where yellow, 0 elsewhere)
+- **Channel 1**: Red player pieces (1 where red, 0 elsewhere)
+- **Channel 2**: Current player indicator (all 1s if yellow to play, all 0s if red to play)
+
+The board is 6 rows × 7 columns, matching Connect Four's physical layout:
+```
+Row 0 (top)     [ ][ ][ ][ ][ ][ ][ ]
+Row 1           [ ][ ][ ][ ][ ][ ][ ]
+Row 2           [ ][ ][ ][ ][ ][ ][ ]
+Row 3           [ ][ ][ ][ ][ ][ ][ ]
+Row 4           [ ][ ][ ][ ][ ][ ][ ]
+Row 5 (bottom)  [ ][ ][ ][ ][ ][ ][ ]
+               Col0 1  2  3  4  5  6
+```
+
+### Feature computation
+
+All 12 features are extracted by `compute_board_features()` in `scripts/extract_gru_dynamics.py`.
+
+#### 1. move_index (temporal)
+- **Type**: Regression (0..42)
+- **Source**: Position in game trajectory
+- **Computation**: Directly passed from trajectory index
+- **Purpose**: Encodes game phase (opening/midgame/endgame)
+
+#### 2. current_player (turn indicator)
+- **Type**: Classification (1=yellow, 2=red)
+- **Source**: Channel 2 of state tensor
+- **Computation**:
+  ```python
+  current_player = 1 if state[2, 0, 0] == 1 else 2
+  ```
+- **Purpose**: Identifies whose turn it is
+
+#### 3-4. yellow_count, red_count (material)
+- **Type**: Regression (0..21 each)
+- **Source**: Channels 0 and 1
+- **Computation**:
+  ```python
+  yellow_count = (board == 1).sum()
+  red_count = (board == 2).sum()
+  ```
+- **Purpose**: Total pieces on board for each player
+
+#### 5. piece_diff (material advantage)
+- **Type**: Regression (-21..+21)
+- **Computation**: `yellow_count - red_count`
+- **Purpose**: Net piece advantage (usually ±1 in normal play)
+
+#### 6. valid_moves (mobility)
+- **Type**: Regression (0..7)
+- **Computation**: Count columns where `board[0, col] == 0` (top row empty)
+- **Purpose**: Number of legal actions available
+
+#### 7-8. immediate_win_current, immediate_win_opponent (tactical threats)
+- **Type**: Classification (0=no threat, 1=can win this move)
+- **Computation**: For each valid move, simulate placing piece and call `check_four()`
+  ```python
+  for col in valid_columns:
+      temp_board = board.copy()
+      row = find_lowest_empty(temp_board, col)
+      temp_board[row, col] = player
+      if check_four(temp_board, player):
+          immediate_win = True
+  ```
+- **Purpose**: Detect "must-block" situations (critical for tactics)
+
+#### 9-10. center_control_current, center_control_opponent (positional)
+- **Type**: Regression (0..6)
+- **Computation**: Count pieces in center column (column 3)
+  ```python
+  center_control = (board[:, 3] == player).sum()
+  ```
+- **Purpose**: Central column dominance (key Connect Four strategy)
+
+#### 11-12. three_in_row_current, three_in_row_opponent (threat potential)
+- **Type**: Regression (0..many, converted to classification for MI)
+- **Computation**: `count_three_in_row(board, player)`
+  - Scans all possible 4-cell windows (horizontal, vertical, diagonal)
+  - Counts windows with exactly 3 of player's pieces + 1 empty
+  - Each such window is a potential winning formation
+- **Purpose**: Measures offensive/defensive pressure
+
+### Core algorithms
+
+#### check_four(board, player)
+Tests if `player` has won (4 in a row anywhere).
+
+**Method**: Exhaustive search of 69 possible 4-in-a-row lines
+- **Horizontal**: 24 windows (4 per row × 6 rows)
+- **Vertical**: 21 windows (3 per column × 7 columns)
+- **Diagonal /**: 12 windows
+- **Diagonal \\**: 12 windows
+
+**Returns**: `True` if any window contains 4 of player's pieces
+
+#### count_three_in_row(board, player)
+Counts potential winning formations.
+
+**Method**: For each 4-cell window:
+1. Count player's pieces in window: `pieces = (window == player).sum()`
+2. Count empty cells in window: `empty = (window == 0).sum()`
+3. If `pieces == 3` and `empty == 1`: increment counter
+
+**Returns**: Number of "three + one empty" formations
+
+### Example extraction
+
+**Board state** (after 10 moves):
+```
+. . . . . . .    Channel 0 (yellow):  0 0 0 0 0 0 0
+. . . . . . .                         0 0 0 0 0 0 0
+. . . . . . .                         0 0 0 1 0 0 0
+. . . Y . . .                         0 0 0 1 0 0 0
+. . R Y R . .                         0 0 0 1 0 0 0
+. R Y Y R . .                         0 0 1 1 0 0 0
+
+                 Channel 1 (red):     0 0 0 0 0 0 0
+                                      0 0 0 0 0 0 0
+                                      0 0 0 0 0 0 0
+                                      0 0 0 0 0 0 0
+                                      0 0 1 0 1 0 0
+                                      0 1 0 0 1 0 0
+```
+
+**Extracted features**:
+```python
+{
+    "move_index": 10.0,
+    "current_player": 1.0,           # Yellow to play
+    "yellow_count": 5.0,
+    "red_count": 4.0,
+    "piece_diff": 1.0,
+    "valid_moves": 7.0,              # All columns open
+    "immediate_win_current": 1.0,    # Yellow can win at col 3!
+    "immediate_win_opponent": 0.0,   # Red has no immediate win
+    "center_control_current": 4.0,   # Yellow dominates center
+    "center_control_opponent": 0.0,
+    "three_in_row_current": 2.0,     # Yellow has 2 threats
+    "three_in_row_opponent": 0.0,
+}
+```
+
+### Storage format
+
+Features are saved in NPZ files under `diagnostics/gru_observability/<model>/hidden_samples/`:
+
+**File structure**:
+```python
+epoch_0123.npz:
+  'hidden_states': array of shape (N, hidden_size)  # GRU outputs
+  'features': dict with 12 keys
+    'move_index': array of shape (N,)
+    'current_player': array of shape (N,)
+    ...
+```
+
+Where `N` is the number of sampled board positions from that epoch's validation set.
+
+**Access**:
+```python
+import numpy as np
+data = np.load('epoch_0123.npz', allow_pickle=True)
+hidden = data['hidden_states']        # (4000, 32) for GRU32
+features = data['features'].item()    # dict with 12 arrays
+immediate_wins = features['immediate_win_current']  # (4000,)
+```
+
 ## Knobs
 
 Command-line options (via `scripts/compute_hidden_mutual_info.py`):
