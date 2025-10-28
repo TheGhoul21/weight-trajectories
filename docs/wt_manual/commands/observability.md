@@ -46,15 +46,22 @@ analyze (plots + linear probes)
   - probe_results.csv and probe_accuracy.png
 
 mutual information (run within analyze)
-- `scripts/compute_hidden_mutual_info.py` is executed after analyze (same --analysis-dir, --output-dir)
+- `scripts/compute_hidden_mutual_info.py` is executed automatically after analyze completes
+- Uses same --analysis-dir and --output-dir as analyze
 - Options
-  - --features [list, default: all predefined]
-  - --max-samples [int, default 4000]
+  - --features [list, default: all 12 board features]
+  - --max-samples [int, default 4000] — subsample hidden states per epoch for MI estimation
   - --seed [int, default 0]
   - --output-dir [default visualizations/gru_observability]
-- Writes
-  - mi_results.csv, mi_heatmap_final.png, mi_trends.png
-  - mi_per_dimension_<model>.png, mi_dimension_values_<model>.png
+- Writes (to `visualizations/gru_observability/`)
+  - **Overview plots** (all models, all epochs):
+    - mi_results.csv — long-form table: model/epoch/feature/mi/type
+    - mi_heatmap_final.png — cross-model comparison at final epoch
+    - mi_trends.png — MI evolution over training per feature
+    - mi_metadata.json — run parameters
+  - **Per-dimension analysis** (per model, final epoch only):
+    - mi_per_dimension_<model>.png — heatmap of MI per hidden dimension; ★ marks best dimension
+    - mi_dimension_values_<model>.png — violin/scatter plots showing HOW best dimension encodes each feature
 
 fixed (find fixed points / stability per epoch)
 - Options
