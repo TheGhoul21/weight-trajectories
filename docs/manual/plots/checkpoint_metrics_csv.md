@@ -3,7 +3,110 @@
 Produced by: `./wt.sh metrics` → `scripts/compute_checkpoint_metrics.py`
 Location: `diagnostics/checkpoint_metrics/<run>_metrics.csv`
 
-Columns
+## Purpose
+
+Compute diagnostic statistics across training checkpoints to track weight-space dynamics and representation quality. Produces tabular metrics for quick analysis of training stability, parameter drift, and hidden state capacity utilization.
+
+## Data collection pipeline
+
+### 1. Checkpoint loading
+For each epoch:
+1. Load `weights_epoch_XXX.pt` checkpoint file
+2. Extract state_dict (model weights)
+3. Parse epoch number from checkpoint metadata or filename
+
+### 2. Weight extraction and aggregation
+**Component filtering**:
+```python
+# Flatten weights by filtering state_dict keys
+for name, tensor in state_dict.items():
+    if "weight" not in name:
+        continue  # Skip biases, norms, etc.
+    if component == "cnn" and "resnet" not in name:
+        continue
+    if component == "gru" and "gru" not in name:
+        continue
+    weights.append(tensor.ravel())  # Flatten to 1D
+
+weight_vector = np.concatenate(weights)  # Single vector per checkpoint
+```
+
+**Result**: Matrix of shape `(num_epochs, weight_dim)` where each row is one checkpoint's flattened weights
+
+### 3. Weight-space metrics computation
+
+**Weight norms** (L2 norm per checkpoint):
+```python
+weight_norm[i] = ||w_i||_2 = sqrt(sum(w_i^2))
+```
+
+**Step norms** (distance between consecutive checkpoints):
+```python
+delta[i] = w_{i+1} - w_i
+step_norm[i] = ||delta[i]||_2
+```
+
+**Step cosine** (alignment between consecutive weight vectors):
+```python
+step_cosine[i] = (w_i · w_{i+1}) / (||w_i|| * ||w_{i+1}||)
+```
+- Values: [-1, +1]
+- +1: perfectly aligned (moving in same direction)
+- 0: orthogonal (exploring perpendicular subspace)
+- -1: reversal (rare, indicates oscillation)
+
+**Relative step** (scale-free step size):
+```python
+relative_step[i] = step_norm[i] / ||w_i||
+```
+- Normalizes by current weight magnitude
+- Detects when steps become small relative to parameter scale
+
+### 4. Representation SVD analysis (optional)
+
+When `--board-source` is enabled, for each checkpoint:
+
+**Board collection**:
+- `random`: Generate N random Connect Four positions
+- `dataset`: Sample N positions from provided dataset
+
+**Forward pass**:
+```python
+for each board in boards:
+    cnn_features = model.resnet(board)  # CNN output
+    policy, value, hidden = model(board)  # Full forward
+    representations.append(hidden.flatten())  # GRU hidden state
+```
+
+**Representation matrix**: `R` of shape `(num_boards, gru_hidden_size)`
+
+**SVD computation**:
+```python
+# 1. Center the data
+R_centered = R - R.mean(axis=0)  # Remove mean per dimension
+
+# 2. Compute singular value decomposition
+U, S, Vt = np.linalg.svd(R_centered, full_matrices=False)
+# S contains singular values in descending order
+
+# 3. Compute variance explained
+total_variance = sum(S^2)  # Total sum of squared singular values
+variance_ratio[k] = S[k]^2 / total_variance  # Fraction explained by k-th component
+```
+
+**Exported metrics**:
+- `repr_total_variance`: `sum(S^2)` — total variance in hidden space
+- `repr_top1_ratio`: `S[0]^2 / sum(S^2)` — fraction explained by top component
+- `repr_top2_ratio`: `(S[0]^2 + S[1]^2) / sum(S^2)` — cumulative for top 2
+- ... up to `--top-singular-values` components
+
+**Interpretation**:
+- `total_variance ↑`: Model using more representational capacity
+- `top1_ratio → 1`: Rank-1 collapse (all hidden states lie on single line)
+- `top1_ratio → 1/gru_size`: Uniformly distributed (healthy)
+- `top1_ratio > 0.5`: Severe collapse, most information in one direction
+
+## Columns
 - epoch: Training epoch number (from checkpoint metadata or filename)
 - weight_norm: L2 norm of the flattened weight vector for the selected component (cnn|gru|all)
 - step_norm: L2 norm of the weight delta from previous checkpoint; blank for the first row

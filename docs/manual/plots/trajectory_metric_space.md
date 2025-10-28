@@ -3,14 +3,110 @@
 Produced by: `./wt.sh trajectory-embedding [--method umap|tsne|phate]`
 Backed by: `scripts/visualize_trajectory_embedding.py`
 
-What it does
+## Purpose
+
+Embed training trajectories into 2D space based on **metrics** (loss, weight norms, etc.) rather than raw weights. Reveals how different architectures explore the training dynamics landscape and whether they converge to similar metric profiles.
+
+## Feature engineering pipeline
+
+### 1. Data loading
+
+For each of 9 models:
+- Load `diagnostics/trajectory_analysis/<model>_metrics.csv` (weight/representation metrics)
+- Load `checkpoints/save_every_3/<model>/training_history.json` (loss curves)
+
+### 2. Feature matrix construction
+
+For each checkpoint, construct feature vector from available metrics:
+
+**Weight-space features** (from metrics CSV):
+- `epoch`: Training epoch number
+- `weight_norm`: L2 norm of weights
+- `step_norm`: L2 distance from previous checkpoint
+- `step_cosine`: Cosine similarity with previous checkpoint
+- `relative_step`: Normalized step size
+
+**Representation features** (if available):
+- `repr_total_variance`: Sum of squared singular values
+- `repr_top1_ratio`, `repr_top2_ratio`, ...: Variance concentration in top components
+
+**Loss features** (from training history):
+- `train_loss`: Combined training loss
+- `val_loss`: Combined validation loss
+- `train_val_gap`: `train_loss - val_loss` (overfitting signal)
+
+**Missing values**: If a feature is unavailable, the entire column is dropped (architecture-agnostic)
+
+**Result**: Feature matrix `F` of shape `(total_checkpoints, num_features)` where rows span all models/epochs
+
+### 3. Standardization
+
+```python
+from sklearn.preprocessing import StandardScaler
+
+scaler = StandardScaler()
+F_scaled = scaler.fit_transform(F)  # Mean=0, Std=1 per feature
+```
+
+**Why standardize?**
+- Features have different units (loss in [0,10], norms in [100,1000])
+- Prevents high-magnitude features from dominating distance metrics
+- Required for meaningful Euclidean distances in UMAP/t-SNE
+
+### 4. Dimensionality reduction
+
+Apply chosen embedding method to `F_scaled`:
+
+**UMAP** (default):
+```python
+from umap import UMAP
+
+reducer = UMAP(n_components=2, random_state=0)
+embedding = reducer.fit_transform(F_scaled)
+```
+- Fast, preserves global structure
+- Good for identifying architectural families
+
+**t-SNE**:
+```python
+from sklearn.manifold import TSNE
+
+reducer = TSNE(n_components=2, perplexity=30, random_state=0)
+embedding = reducer.fit_transform(F_scaled)
+```
+- Emphasizes local neighborhoods
+- Better for finding fine-grained training regimes
+
+**PHATE**:
+```python
+import phate
+
+reducer = phate.PHATE(n_components=2, knn=5, random_state=0)
+embedding = reducer.fit_transform(F_scaled)
+```
+- Smoothest trajectories
+- Best for temporal continuity
+
+**Result**: Embedding matrix of shape `(total_checkpoints, 2)` with x/y coordinates
+
+### 5. Visualization encoding
+
+Each checkpoint plotted as a point with:
+- **X/Y position**: Embedding coordinates
+- **Color**: Epoch number (colormap: viridis)
+- **Marker shape**: GRU size (○=32, □=64, △=128)
+- **Marker edge color**: CNN channels (encoded as hue)
+- **Point size**: Scales with epoch (larger = later training)
+- **Lines**: Connect consecutive checkpoints within same model
+
+## What it does
 - Loads per-run metrics CSVs and training histories, builds an architecture-agnostic feature vector per checkpoint, standardizes features, then embeds all checkpoints from all 9 models into a shared 2D space.
 
-Inputs
+## Inputs
 - diagnostics/trajectory_analysis/k3_c{channels}_gru{hidden}_metrics.csv
 - checkpoints/save_every_3/k3_c{channels}_gru{hidden}/training_history.json
 
-Outputs
+## Outputs
 - trajectory_embedding_all.png: All models overlaid; color is epoch, marker encodes GRU size (o,s,^), edge color encodes channels
 - trajectory_embedding_by_gru.png: 1×3 facet by GRU size; lines/points per channel; colorbar = epoch
 - trajectory_embedding_3d.png: Optional 3D embedding when available (PCA fallback)
