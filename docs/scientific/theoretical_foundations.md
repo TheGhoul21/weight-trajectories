@@ -238,8 +238,8 @@ Recent work (Maheswaranathan & Williams, 2024) formalizes neurons as optimizing 
 
 **Application to hidden states**:
 - Game sequences are autocorrelated (moves depend on history)
-- T-PHATE could better separate strategic phases
-- Not yet implemented but high-priority extension
+- T-PHATE can better separate strategic phases
+- Experimental support available: enable via `--t-phate [--t-phate-alpha A]` in the visualizer
 
 ### 4.4 Alternative Embeddings
 

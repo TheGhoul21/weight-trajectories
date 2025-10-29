@@ -254,9 +254,74 @@ class TrajectoryVisualizer:
                        f"using {resolved} instead of {requested}.")
         return resolved, message
 
+    @staticmethod
+    def _delay_embed(series: np.ndarray, tau: int, lags: int) -> np.ndarray:
+        """Delay-embed a sequence with window defined by tau and lags.
+
+        Args:
+            series: (n_samples, n_features)
+            tau: step between delays (>=1)
+            lags: number of past lags to include (>=1 means include x_{t}, x_{t-τ}, ..., x_{t-l*τ})
+
+        Returns:
+            (n_samples, n_features * (lags+1)) delay-embedded matrix with edge replication.
+        """
+        n, d = series.shape
+        tau = max(1, int(tau))
+        lags = max(0, int(lags))
+        if lags == 0:
+            return series.astype(np.float32, copy=False)
+        out = np.empty((n, d * (lags + 1)), dtype=np.float32)
+        for t in range(n):
+            cols = []
+            for k in range(0, lags + 1):
+                idx = max(0, t - k * tau)
+                cols.append(series[idx])
+            out[t] = np.concatenate(cols, axis=0)
+        return out
+
+    @staticmethod
+    def _temporal_blended_distance(X: np.ndarray, group_ids: np.ndarray, alpha: float, tau: float) -> np.ndarray:
+        """Compute a blended distance matrix combining feature and temporal distances.
+
+        D_eff(i,j)^2 = ||x_i - x_j||^2 + alpha * (|t_i - t_j| / tau)^2 for i,j in same group;
+                        large penalty if groups differ.
+
+        Args:
+            X: (n_samples, n_features) feature matrix (after optional PCA/delay).
+            group_ids: (n_samples,) int labels mapping each row to a sequence/group.
+            alpha: weight on temporal term.
+            tau: temporal scale (in steps).
+
+        Returns:
+            (n_samples, n_samples) symmetric distance matrix.
+        """
+        X = X.astype(np.float32, copy=False)
+        n = X.shape[0]
+        # Pairwise squared Euclidean via Gram trick
+        norms = np.sum(X * X, axis=1, keepdims=True)
+        Dx2 = norms + norms.T - 2.0 * (X @ X.T)
+        Dx2 = np.maximum(Dx2, 0.0)
+
+        # Temporal distance per group
+        idx = np.arange(n, dtype=np.int32)
+        T = np.abs(idx[:, None] - idx[None, :]).astype(np.float32)
+        same = (group_ids[:, None] == group_ids[None, :]).astype(np.float32)
+        # If different groups, use a large temporal separation to null affinity
+        large = 1e6
+        T_scaled2 = np.where(same > 0, (T / max(1e-6, float(tau))) ** 2, large)
+
+        Deff2 = Dx2 + float(alpha) * T_scaled2
+        Deff = np.sqrt(np.maximum(Deff2, 0.0)).astype(np.float32)
+        # Zero diagonal
+        np.fill_diagonal(Deff, 0.0)
+        return Deff
+
     def visualize_weight_trajectory(self, weights, title, save_path=None, epochs=None,
                                      phate_n_pca=None, phate_knn=None, phate_t=None,
-                                     phate_decay=None):
+                                     phate_decay=None, use_tphate=False, tphate_alpha=1.0,
+                                     tphate_mode='time-feature', tphate_delay=None, tphate_lags=None,
+                                     tphate_kernel=False, tphate_kernel_alpha=1.0, tphate_kernel_tau=3.0):
         """
         Visualize weight trajectory using PHATE
 
@@ -297,15 +362,55 @@ class TrajectoryVisualizer:
         else:
             weights_for_phate = weights.astype(np.float32, copy=False)
 
-        phate_op = phate.PHATE(
-            n_components=2,
-            knn=knn,
-            t=phate_t if phate_t is not None else 10,
-            decay=phate_decay if phate_decay is not None else 'auto',
-            verbose=False,
-            n_pca=None
-        )
-        weights_phate = phate_op.fit_transform(weights_for_phate)
+        # Optional T-PHATE components
+        if use_tphate and n_samples >= 2:
+            # 1) Delay embedding for time-series structure
+            if tphate_delay and tphate_lags and tphate_lags > 0:
+                weights_for_phate = self._delay_embed(weights_for_phate, tphate_delay, tphate_lags)
+            # 2) Append a scaled temporal feature unless kernel blending is used
+            if not tphate_kernel:
+                time_idx = np.linspace(0.0, 1.0, num=n_samples, dtype=np.float32).reshape(-1, 1)
+                time_feat = (tphate_alpha if tphate_alpha is not None else 1.0) * time_idx
+                weights_for_phate = np.hstack([weights_for_phate, time_feat]).astype(np.float32, copy=False)
+
+        if tphate_kernel and n_samples >= 2:
+            # Build blended precomputed distance
+            group_ids = np.zeros(n_samples, dtype=np.int32)
+            D = self._temporal_blended_distance(weights_for_phate, group_ids,
+                                                alpha=(tphate_kernel_alpha or 1.0),
+                                                tau=(tphate_kernel_tau or 3.0))
+            try:
+                phate_op = phate.PHATE(
+                    n_components=2,
+                    knn=knn,
+                    t=phate_t if phate_t is not None else 10,
+                    decay=phate_decay if phate_decay is not None else 'auto',
+                    verbose=False,
+                    n_pca=None,
+                    knn_dist='precomputed'
+                )
+                weights_phate = phate_op.fit_transform(D)
+            except Exception:
+                # Fallback to feature-based PHATE
+                phate_op = phate.PHATE(
+                    n_components=2,
+                    knn=knn,
+                    t=phate_t if phate_t is not None else 10,
+                    decay=phate_decay if phate_decay is not None else 'auto',
+                    verbose=False,
+                    n_pca=None
+                )
+                weights_phate = phate_op.fit_transform(weights_for_phate)
+        else:
+            phate_op = phate.PHATE(
+                n_components=2,
+                knn=knn,
+                t=phate_t if phate_t is not None else 10,
+                decay=phate_decay if phate_decay is not None else 'auto',
+                verbose=False,
+                n_pca=None
+            )
+            weights_phate = phate_op.fit_transform(weights_for_phate)
 
         # Create plot
         fig, ax = plt.subplots(figsize=(10, 8))
@@ -374,7 +479,8 @@ class TrajectoryVisualizer:
 
     def visualize_cnn_trajectory(self, save_path=None, epoch_min=None, epoch_max=None,
                                  epoch_stride=1, phate_n_pca=None, phate_knn=None,
-                                 phate_t=None, phate_decay=None):
+                                 phate_t=None, phate_decay=None, use_tphate=False,
+                                 tphate_alpha=1.0):
         """Visualize CNN weight evolution."""
         checkpoints = self.load_checkpoints()
         checkpoints, epochs = self._filter_checkpoints(checkpoints, epoch_min, epoch_max, epoch_stride)
@@ -385,11 +491,14 @@ class TrajectoryVisualizer:
                                                 phate_n_pca=phate_n_pca,
                                                 phate_knn=phate_knn,
                                                 phate_t=phate_t,
-                                                phate_decay=phate_decay)
+                                                phate_decay=phate_decay,
+                                                use_tphate=use_tphate,
+                                                tphate_alpha=tphate_alpha)
 
     def visualize_gru_trajectory(self, save_path=None, epoch_min=None, epoch_max=None,
                                  epoch_stride=1, phate_n_pca=None, phate_knn=None,
-                                 phate_t=None, phate_decay=None):
+                                 phate_t=None, phate_decay=None, use_tphate=False,
+                                 tphate_alpha=1.0):
         """Visualize GRU weight evolution."""
         checkpoints = self.load_checkpoints()
         checkpoints, epochs = self._filter_checkpoints(checkpoints, epoch_min, epoch_max, epoch_stride)
@@ -399,7 +508,9 @@ class TrajectoryVisualizer:
                                                 phate_n_pca=phate_n_pca,
                                                 phate_knn=phate_knn,
                                                 phate_t=phate_t,
-                                                phate_decay=phate_decay)
+                                                phate_decay=phate_decay,
+                                                use_tphate=use_tphate,
+                                                tphate_alpha=tphate_alpha)
 
     def visualize_board_representations(self, board_states, checkpoint_path, save_path=None):
         """
@@ -536,7 +647,9 @@ class TrajectoryVisualizer:
 
     def create_summary_plot(self, epoch_min=None, epoch_max=None, epoch_stride=1,
                             phate_n_pca=None, phate_knn=None, phate_t=None,
-                            phate_decay=None):
+                            phate_decay=None, use_tphate=False, tphate_alpha=1.0,
+                            tphate_mode='time-feature', tphate_delay=None, tphate_lags=None,
+                            tphate_kernel=False, tphate_kernel_alpha=1.0, tphate_kernel_tau=3.0):
         """Create a 2x2 summary plot with all visualizations.
 
         Args:
@@ -570,15 +683,32 @@ class TrajectoryVisualizer:
             if manual_msg:
                 print(f"  {manual_msg}")
 
-        phate_op_cnn = phate.PHATE(
-            n_components=2,
-            knn=knn,
-            t=phate_t if phate_t is not None else 10,
-            decay=phate_decay if phate_decay is not None else 'auto',
-            verbose=False,
-            n_pca=None
-        )
-        cnn_phate = phate_op_cnn.fit_transform(cnn_input)
+        # Optional experimental T-PHATE: append per-sample time feature
+        if use_tphate and n_samples >= 2:
+            if tphate_delay and tphate_lags and tphate_lags > 0:
+                cnn_input = self._delay_embed(cnn_input, tphate_delay, tphate_lags)
+            if not tphate_kernel:
+                time_idx = np.linspace(0.0, 1.0, num=n_samples, dtype=np.float32).reshape(-1, 1)
+                cnn_input = np.hstack([cnn_input, (tphate_alpha if tphate_alpha is not None else 1.0) * time_idx]).astype(np.float32, copy=False)
+
+        if tphate_kernel and n_samples >= 2:
+            groups = np.zeros(n_samples, dtype=np.int32)
+            D = self._temporal_blended_distance(cnn_input, groups, tphate_kernel_alpha or 1.0, tphate_kernel_tau or 3.0)
+            try:
+                phate_op_cnn = phate.PHATE(n_components=2, knn=knn, t=phate_t if phate_t is not None else 10,
+                                           decay=phate_decay if phate_decay is not None else 'auto', verbose=False,
+                                           n_pca=None, knn_dist='precomputed')
+                cnn_phate = phate_op_cnn.fit_transform(D)
+            except Exception:
+                phate_op_cnn = phate.PHATE(n_components=2, knn=knn, t=phate_t if phate_t is not None else 10,
+                                           decay=phate_decay if phate_decay is not None else 'auto', verbose=False,
+                                           n_pca=None)
+                cnn_phate = phate_op_cnn.fit_transform(cnn_input)
+        else:
+            phate_op_cnn = phate.PHATE(n_components=2, knn=knn, t=phate_t if phate_t is not None else 10,
+                                       decay=phate_decay if phate_decay is not None else 'auto', verbose=False,
+                                       n_pca=None)
+            cnn_phate = phate_op_cnn.fit_transform(cnn_input)
 
         print("  Computing GRU PHATE...")
         resolved_n_pca_gru, info_gru = self._resolve_phate_n_pca(gru_weights.shape[1], n_samples,
@@ -591,15 +721,32 @@ class TrajectoryVisualizer:
             if manual_msg:
                 print(f"  {manual_msg}")
 
-        phate_op_gru = phate.PHATE(
-            n_components=2,
-            knn=knn,
-            t=phate_t if phate_t is not None else 10,
-            decay=phate_decay if phate_decay is not None else 'auto',
-            verbose=False,
-            n_pca=None
-        )
-        gru_phate = phate_op_gru.fit_transform(gru_input)
+        # Optional experimental T-PHATE for GRU
+        if use_tphate and n_samples >= 2:
+            if tphate_delay and tphate_lags and tphate_lags > 0:
+                gru_input = self._delay_embed(gru_input, tphate_delay, tphate_lags)
+            if not tphate_kernel:
+                time_idx = np.linspace(0.0, 1.0, num=n_samples, dtype=np.float32).reshape(-1, 1)
+                gru_input = np.hstack([gru_input, (tphate_alpha if tphate_alpha is not None else 1.0) * time_idx]).astype(np.float32, copy=False)
+
+        if tphate_kernel and n_samples >= 2:
+            groups = np.zeros(n_samples, dtype=np.int32)
+            D = self._temporal_blended_distance(gru_input, groups, tphate_kernel_alpha or 1.0, tphate_kernel_tau or 3.0)
+            try:
+                phate_op_gru = phate.PHATE(n_components=2, knn=knn, t=phate_t if phate_t is not None else 10,
+                                           decay=phate_decay if phate_decay is not None else 'auto', verbose=False,
+                                           n_pca=None, knn_dist='precomputed')
+                gru_phate = phate_op_gru.fit_transform(D)
+            except Exception:
+                phate_op_gru = phate.PHATE(n_components=2, knn=knn, t=phate_t if phate_t is not None else 10,
+                                           decay=phate_decay if phate_decay is not None else 'auto', verbose=False,
+                                           n_pca=None)
+                gru_phate = phate_op_gru.fit_transform(gru_input)
+        else:
+            phate_op_gru = phate.PHATE(n_components=2, knn=knn, t=phate_t if phate_t is not None else 10,
+                                       decay=phate_decay if phate_decay is not None else 'auto', verbose=False,
+                                       n_pca=None)
+            gru_phate = phate_op_gru.fit_transform(gru_input)
 
         # Create 2x2 plot
         fig = plt.figure(figsize=(16, 12))
@@ -853,7 +1000,9 @@ class TrajectoryVisualizer:
     def visualize_joint_cnn_gru(self, save_path=None, epoch_min=None, epoch_max=None,
                                  epoch_stride=1, center_strategy='none',
                                  phate_n_pca=None, phate_knn=None, phate_t=None,
-                                 phate_decay=None):
+                                 phate_decay=None, use_tphate=False, tphate_alpha=1.0,
+                                 tphate_mode='time-feature', tphate_delay=None, tphate_lags=None,
+                                 tphate_kernel=False, tphate_kernel_alpha=1.0, tphate_kernel_tau=3.0):
         """Plot CNN and GRU trajectories together in a shared PHATE embedding.
 
         Args:
@@ -887,15 +1036,51 @@ class TrajectoryVisualizer:
             if manual_msg:
                 print(f"  {manual_msg}")
 
-        phate_op = phate.PHATE(
-            n_components=2,
-            knn=knn,
-            t=phate_t if phate_t is not None else 10,
-            decay=phate_decay if phate_decay is not None else 'auto',
-            verbose=False,
-            n_pca=None
-        )
-        embedding = phate_op.fit_transform(phate_input)
+        # Optional experimental T-PHATE: append a time feature that resets per block (CNN/GRU)
+        if use_tphate:
+            n = len(cnn_weights)
+            m = len(gru_weights)
+            if n >= 2:
+                time_cnn = np.linspace(0.0, 1.0, num=n, dtype=np.float32).reshape(-1, 1)
+            else:
+                time_cnn = np.zeros((n, 1), dtype=np.float32)
+            if m >= 2:
+                time_gru = np.linspace(0.0, 1.0, num=m, dtype=np.float32).reshape(-1, 1)
+            else:
+                time_gru = np.zeros((m, 1), dtype=np.float32)
+            time_feat = np.vstack([time_cnn, time_gru]) * (tphate_alpha if tphate_alpha is not None else 1.0)
+            # Optional delay embedding per block before stacking time feature
+            if tphate_delay and tphate_lags and tphate_lags > 0:
+                combined_cnn = self._delay_embed(cnn_weights.astype(np.float32, copy=False), tphate_delay, tphate_lags)
+                combined_gru = self._delay_embed(gru_weights.astype(np.float32, copy=False), tphate_delay, tphate_lags)
+                combined = np.vstack([combined_cnn, combined_gru]).astype(np.float32, copy=False)
+                phate_input = combined
+            phate_input = np.hstack([phate_input, time_feat]).astype(np.float32, copy=False)
+
+        if tphate_kernel:
+            # Group ids: 0 for CNN rows, 1 for GRU rows
+            groups = np.array([0] * len(cnn_weights) + [1] * len(gru_weights), dtype=np.int32)
+            D = self._temporal_blended_distance(phate_input, groups, tphate_kernel_alpha or 1.0, tphate_kernel_tau or 3.0)
+            try:
+                phate_op = phate.PHATE(n_components=2, knn=knn, t=phate_t if phate_t is not None else 10,
+                                       decay=phate_decay if phate_decay is not None else 'auto', verbose=False,
+                                       n_pca=None, knn_dist='precomputed')
+                embedding = phate_op.fit_transform(D)
+            except Exception:
+                phate_op = phate.PHATE(n_components=2, knn=knn, t=phate_t if phate_t is not None else 10,
+                                       decay=phate_decay if phate_decay is not None else 'auto', verbose=False,
+                                       n_pca=None)
+                embedding = phate_op.fit_transform(phate_input)
+        else:
+            phate_op = phate.PHATE(
+                n_components=2,
+                knn=knn,
+                t=phate_t if phate_t is not None else 10,
+                decay=phate_decay if phate_decay is not None else 'auto',
+                verbose=False,
+                n_pca=None
+            )
+            embedding = phate_op.fit_transform(phate_input)
 
         cnn_embed = embedding[:len(cnn_weights)]
         gru_embed = embedding[len(cnn_weights):]
@@ -1083,7 +1268,11 @@ def visualize_ablation_weight_trajectories(checkpoint_dirs, component='cnn', dev
                                            save_path=None, animation_path=None, max_knn=8,
                                            center_strategy='none', epoch_min=None,
                                            epoch_max=None, epoch_stride=1, phate_n_pca=None,
-                                           phate_knn=None, phate_t=None, phate_decay=None):
+                                           phate_knn=None, phate_t=None, phate_decay=None,
+                                           use_tphate=False, tphate_alpha=1.0,
+                                           tphate_mode='time-feature', tphate_delay=None,
+                                           tphate_lags=None, tphate_kernel=False,
+                                           tphate_kernel_alpha=1.0, tphate_kernel_tau=3.0):
     """Compare weight trajectories from multiple checkpoint directories in one PHATE embedding.
 
     Args:
@@ -1148,15 +1337,49 @@ def visualize_ablation_weight_trajectories(checkpoint_dirs, component='cnn', dev
         if manual_msg:
             print(f"  {manual_msg}")
 
-    phate_op = phate.PHATE(
-        n_components=2,
-        knn=knn,
-        t=phate_t if phate_t is not None else 10,
-        decay=phate_decay if phate_decay is not None else 40,
-        verbose=False,
-        n_pca=None
-    )
-    embedding = phate_op.fit_transform(phate_input)
+    # Optional T-PHATE: delay-embed and append per-run time feature (resets for each run)
+    if use_tphate:
+        if tphate_delay and tphate_lags and tphate_lags > 0:
+            phate_input = TrajectoryVisualizer._delay_embed(phate_input, tphate_delay, tphate_lags)
+        time_cols = []
+        for entry in run_data:
+            count = entry['weights'].shape[0]
+            if count >= 2:
+                t = np.linspace(0.0, 1.0, num=count, dtype=np.float32).reshape(-1, 1)
+            else:
+                t = np.zeros((count, 1), dtype=np.float32)
+            time_cols.append(t)
+        time_feat = np.vstack(time_cols) * (tphate_alpha if tphate_alpha is not None else 1.0)
+        phate_input = np.hstack([phate_input, time_feat]).astype(np.float32, copy=False)
+
+    if tphate_kernel:
+        counts = [entry['weights'].shape[0] for entry in run_data]
+        groups = np.concatenate([np.full(c, i, dtype=np.int32) for i, c in enumerate(counts)])
+        D = TrajectoryVisualizer._temporal_blended_distance(phate_input, groups,
+                                                            tphate_kernel_alpha or 1.0,
+                                                            tphate_kernel_tau or 3.0)
+        try:
+            phate_op = phate.PHATE(n_components=2, knn=knn,
+                                   t=phate_t if phate_t is not None else 10,
+                                   decay=phate_decay if phate_decay is not None else 40,
+                                   verbose=False, n_pca=None, knn_dist='precomputed')
+            embedding = phate_op.fit_transform(D)
+        except Exception:
+            phate_op = phate.PHATE(n_components=2, knn=knn,
+                                   t=phate_t if phate_t is not None else 10,
+                                   decay=phate_decay if phate_decay is not None else 40,
+                                   verbose=False, n_pca=None)
+            embedding = phate_op.fit_transform(phate_input)
+    else:
+        phate_op = phate.PHATE(
+            n_components=2,
+            knn=knn,
+            t=phate_t if phate_t is not None else 10,
+            decay=phate_decay if phate_decay is not None else 40,
+            verbose=False,
+            n_pca=None
+        )
+        embedding = phate_op.fit_transform(phate_input)
 
     fig, ax = plt.subplots(figsize=(10, 8))
     cmap = plt.colormaps['tab20'].resampled(max(len(run_data), 1))
@@ -1260,6 +1483,28 @@ def generate_random_boards(n_boards=100, seed=None):
     return boards
 
 
+def generate_random_game(n_moves=20, seed=None):
+    """Generate a simple random legal Connect-4 game sequence as board tensors."""
+    rng = np.random.default_rng(seed)
+    board = np.zeros((3, 6, 7), dtype=np.float32)
+    seq = []
+    turn = 0  # 0=yellow, 1=red
+    for _ in range(max(1, int(n_moves))):
+        seq.append(torch.from_numpy(board.copy()).unsqueeze(0))
+        col = int(rng.integers(0, 7))
+        placed = False
+        for row in range(5, -1, -1):
+            if board[0, row, col] == 0 and board[1, row, col] == 0:
+                board[turn, row, col] = 1.0
+                placed = True
+                break
+        if not placed:
+            continue
+        board[2, :, :] = 1.0 if turn == 1 else 0.0
+        turn = 1 - turn
+    return seq
+
+
 def main():
     parser = argparse.ArgumentParser(description="Visualize weight trajectories using PHATE")
 
@@ -1270,7 +1515,7 @@ def main():
     parser.add_argument("--output-dir", type=str, default="visualizations",
                        help="Directory to save visualizations")
     parser.add_argument("--viz-type", type=str, default="all",
-                       choices=["all", "cnn", "gru", "boards", "summary", "joint", "ablation-cnn", "ablation-gru", "activations"],
+                       choices=["all", "cnn", "gru", "boards", "summary", "joint", "ablation-cnn", "ablation-gru", "activations", "temporal"],
                        help="Type of visualization to create")
     parser.add_argument("--n-boards", type=int, default=100,
                        help="Number of random boards for representation viz")
@@ -1302,6 +1547,30 @@ def main():
                        help="Optional PHATE diffusion time (higher emphasises global structure)")
     parser.add_argument("--phate-decay", type=float,
                        help="Optional PHATE decay parameter controlling kernel tail (default 'auto')")
+    parser.add_argument("--t-phate", action='store_true',
+                       help="Experimental: enable T-PHATE by appending a temporal feature to each sample")
+    parser.add_argument("--t-phate-alpha", type=float, default=1.0,
+                       help="Temporal feature weight for T-PHATE (higher enforces stronger chronology; default: 1.0)")
+    parser.add_argument("--t-phate-delay", type=int,
+                       help="T-PHATE delay embedding step (tau). Requires --t-phate-lags > 0")
+    parser.add_argument("--t-phate-lags", type=int,
+                       help="T-PHATE number of past lags to include in delay embedding")
+    parser.add_argument("--t-phate-kernel", action='store_true',
+                       help="Use temporal kernel blending (precomputed distances) instead of feature augmentation")
+    parser.add_argument("--t-phate-kernel-alpha", type=float, default=1.0,
+                       help="Temporal kernel weight (alpha) for blended distance")
+    parser.add_argument("--t-phate-kernel-tau", type=float, default=3.0,
+                       help="Temporal kernel scale (tau) measured in steps")
+    parser.add_argument("--temporal-mode", choices=['training', 'game'], default='training',
+                       help="Temporal axis: training=across epochs at fixed game step; game=across game at fixed epoch")
+    parser.add_argument("--time-steps", type=int, default=20,
+                       help="Game: number of moves to simulate; Training: used to pick mid step if --time-step not set")
+    parser.add_argument("--time-step", type=int,
+                       help="Training mode: which game step index to hold while traversing epochs")
+    parser.add_argument("--time-epoch", type=str, default='min',
+                       help="Game mode: which epoch to hold (min|final|latest or a number)")
+    parser.add_argument("--sequential-data", type=str,
+                       help="Path to sequential dataset (.pt) with real game trajectories for temporal viz")
 
     args = parser.parse_args()
 
@@ -1344,7 +1613,14 @@ def main():
             phate_n_pca=args.phate_n_pca,
             phate_knn=args.phate_knn,
             phate_t=args.phate_t,
-            phate_decay=args.phate_decay
+            phate_decay=args.phate_decay,
+            use_tphate=args.t_phate,
+            tphate_alpha=args.t_phate_alpha,
+            tphate_delay=args.t_phate_delay,
+            tphate_lags=args.t_phate_lags,
+            tphate_kernel=args.t_phate_kernel,
+            tphate_kernel_alpha=args.t_phate_kernel_alpha,
+            tphate_kernel_tau=args.t_phate_kernel_tau
         )
         plt.close(fig)
 
@@ -1378,6 +1654,113 @@ def main():
         print("="*60)
         return
 
+    if args.viz_type == "temporal":
+        print("\n" + "="*60)
+        print("Temporal Trajectory Visualization")
+        print("="*60)
+        viz = TrajectoryVisualizer(args.checkpoint_dir, device)
+        checkpoints = viz.load_checkpoints()
+        checkpoints, epochs = viz._filter_checkpoints(checkpoints, epoch_min, epoch_max, epoch_stride)
+
+        # Resolve epoch for game mode
+        def _resolve_epoch_index(tag: str) -> int:
+            if not epochs:
+                return len(checkpoints) - 1
+            if tag == 'min' and viz.history and viz.history.get('val_loss'):
+                idx = np.argmin(viz.history['val_loss'])
+                return viz._closest_epoch_index(epochs, idx + 1)
+            if tag == 'final' and viz.history and viz.history.get('val_loss'):
+                return viz._closest_epoch_index(epochs, len(viz.history['val_loss']))
+            if tag == 'latest':
+                return len(checkpoints) - 1
+            if tag.isdigit():
+                return viz._closest_epoch_index(epochs, int(tag))
+            return len(checkpoints) - 1
+
+        if not args.sequential_data:
+            parser.error("--sequential-data is required for --viz-type temporal to use real game trajectories")
+        ds_path = Path(args.sequential_data)
+        if not ds_path.exists():
+            parser.error(f"Sequential dataset not found: {ds_path}")
+        seq_data = torch.load(ds_path, map_location='cpu')
+        games = seq_data.get('games', [])
+        if not games:
+            parser.error(f"No games found in sequential dataset: {ds_path}")
+        rng = np.random.default_rng(args.board_seed)
+        game_idx = int(rng.integers(0, len(games)))
+        game_entry = games[game_idx]
+        states_tensor = game_entry['states']  # (seq_len, 3, 6, 7)
+        # Cap by --time-steps if provided
+        seq_len = int(states_tensor.shape[0])
+        use_len = int(min(seq_len, max(1, args.time_steps))) if args.time_steps else seq_len
+        # Build sequence of 1x3x6x7 tensors
+        game_seq = [states_tensor[i].unsqueeze(0) for i in range(use_len)]
+
+        if args.temporal_mode == 'training':
+            # Fixed game step across epochs
+            step_idx = args.time_step if args.time_step is not None else min(len(game_seq) - 1, max(0, args.time_steps // 2))
+            board_t = game_seq[step_idx]
+            reps = []
+            for cp in checkpoints:
+                model = create_model(viz.cnn_channels, viz.gru_hidden, viz.kernel_size)
+                model.load_state_dict(cp['state_dict'])
+                model.to(device)
+                model.eval()
+                with torch.no_grad():
+                    _, _, h = model(board_t.to(device))
+                reps.append(h.squeeze().cpu().numpy())
+            reps = np.array(reps, dtype=np.float32)
+            title = f"Hidden Trajectory across Training (fixed game step {step_idx})"
+            fig, _ = viz.visualize_weight_trajectory(reps, title, save_path=output_dir / "temporal_training.png",
+                                                     epochs=epochs,
+                                                     phate_n_pca=None,
+                                                     phate_knn=args.phate_knn,
+                                                     phate_t=args.phate_t,
+                                                     phate_decay=args.phate_decay,
+                                                     use_tphate=args.t_phate,
+                                                     tphate_alpha=args.t_phate_alpha,
+                                                     tphate_delay=args.t_phate_delay,
+                                                     tphate_lags=args.t_phate_lags,
+                                                     tphate_kernel=args.t_phate_kernel,
+                                                     tphate_kernel_alpha=args.t_phate_kernel_alpha,
+                                                     tphate_kernel_tau=args.t_phate_kernel_tau)
+            plt.close(fig)
+        else:
+            # Fixed epoch across game steps
+            ep_idx = _resolve_epoch_index(str(args.time_epoch).lower())
+            checkpoint = checkpoints[ep_idx]
+            model = create_model(viz.cnn_channels, viz.gru_hidden, viz.kernel_size)
+            model.load_state_dict(checkpoint['state_dict'])
+            model.to(device)
+            model.eval()
+            reps = []
+            with torch.no_grad():
+                for bt in game_seq:
+                    _, _, h = model(bt.to(device))
+                    reps.append(h.squeeze().cpu().numpy())
+            reps = np.array(reps, dtype=np.float32)
+            steps = list(range(1, len(reps) + 1))
+            title = f"Hidden Trajectory across Game (fixed epoch {epochs[ep_idx] if epochs else ep_idx+1})"
+            fig, _ = viz.visualize_weight_trajectory(reps, title, save_path=output_dir / "temporal_game.png",
+                                                     epochs=steps,
+                                                     phate_n_pca=None,
+                                                     phate_knn=args.phate_knn,
+                                                     phate_t=args.phate_t,
+                                                     phate_decay=args.phate_decay,
+                                                     use_tphate=args.t_phate,
+                                                     tphate_alpha=args.t_phate_alpha,
+                                                     tphate_delay=args.t_phate_delay,
+                                                     tphate_lags=args.t_phate_lags,
+                                                     tphate_kernel=args.t_phate_kernel,
+                                                     tphate_kernel_alpha=args.t_phate_kernel_alpha,
+                                                     tphate_kernel_tau=args.t_phate_kernel_tau)
+            plt.close(fig)
+
+        print("\n" + "="*60)
+        print(f"✓ Visualizations saved to {output_dir}")
+        print("="*60)
+        return
+
     if args.viz_type == "joint":
         print("\n" + "="*60)
         print("Joint CNN/GRU Trajectory")
@@ -1391,7 +1774,14 @@ def main():
             phate_n_pca=args.phate_n_pca,
             phate_knn=args.phate_knn,
             phate_t=args.phate_t,
-            phate_decay=args.phate_decay
+            phate_decay=args.phate_decay,
+            use_tphate=args.t_phate,
+            tphate_alpha=args.t_phate_alpha,
+            tphate_delay=args.t_phate_delay,
+            tphate_lags=args.t_phate_lags,
+            tphate_kernel=args.t_phate_kernel,
+            tphate_kernel_alpha=args.t_phate_kernel_alpha,
+            tphate_kernel_tau=args.t_phate_kernel_tau
         )
         plt.close(fig)
         print("\n" + "="*60)
@@ -1410,7 +1800,9 @@ def main():
                                      phate_n_pca=args.phate_n_pca,
                                      phate_knn=args.phate_knn,
                                      phate_t=args.phate_t,
-                                     phate_decay=args.phate_decay)
+                                     phate_decay=args.phate_decay,
+                                     use_tphate=args.t_phate,
+                                     tphate_alpha=args.t_phate_alpha)
         plt.close()
 
     if args.viz_type in ["all", "gru"]:
@@ -1424,7 +1816,9 @@ def main():
                                      phate_n_pca=args.phate_n_pca,
                                      phate_knn=args.phate_knn,
                                      phate_t=args.phate_t,
-                                     phate_decay=args.phate_decay)
+                                     phate_decay=args.phate_decay,
+                                     use_tphate=args.t_phate,
+                                     tphate_alpha=args.t_phate_alpha)
         plt.close()
 
     if args.viz_type in ["all", "boards"]:
@@ -1447,7 +1841,14 @@ def main():
                                       phate_n_pca=args.phate_n_pca,
                                       phate_knn=args.phate_knn,
                                       phate_t=args.phate_t,
-                                      phate_decay=args.phate_decay)
+                                      phate_decay=args.phate_decay,
+                                      use_tphate=args.t_phate,
+                                      tphate_alpha=args.t_phate_alpha,
+                                      tphate_delay=args.t_phate_delay,
+                                      tphate_lags=args.t_phate_lags,
+                                      tphate_kernel=args.t_phate_kernel,
+                                      tphate_kernel_alpha=args.t_phate_kernel_alpha,
+                                      tphate_kernel_tau=args.t_phate_kernel_tau)
         fig.savefig(output_dir / "summary.png", dpi=300, bbox_inches='tight')
         plt.close()
 

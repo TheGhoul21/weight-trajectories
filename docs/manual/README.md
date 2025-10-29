@@ -55,6 +55,8 @@ What you're looking at and how to read it
 - [Factorial Analysis](plots/factorial_heatmaps.md) - Architecture sweep heatmaps
 - [CNN Activation Maps](plots/activations.md) - Grad-CAM visualization
 
+Note: The Unified Visualization Suite includes temporal trajectory plots across both training and game time, with T‑PHATE support (delay embeddings and temporal kernel blending) for clearer learning dynamics.
+
 ### Workflows
 End-to-end analysis guides
 - [Workflows Overview](manual/workflows/) - All pipelines indexed

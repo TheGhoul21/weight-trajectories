@@ -90,6 +90,8 @@ Export & Reports
 
 Tips
   - Run './wt.sh <command> --help' for script-specific options
+  - Visualizer supports T-PHATE via '--t-phate [--t-phate-alpha A]'
+  - Temporal viz: '--viz-type temporal --temporal-mode training|game'
   - Set PYTHON_BIN to override the interpreter used by all commands
   - See docs: manual/commands for details and examples
 EOF

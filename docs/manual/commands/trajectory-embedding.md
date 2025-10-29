@@ -1,6 +1,6 @@
 # wt trajectory-embedding
 
-Embed per-checkpoint trajectories into a common metric space (UMAP/t-SNE/PHATE) using architecture-agnostic features.
+Embed per-checkpoint trajectories into a common metric space (UMAP/t-SNE/PHATE/T‑PHATE) using architecture-agnostic features.
 
 Maps to: `scripts/visualize_trajectory_embedding.py`
 
@@ -8,9 +8,10 @@ Options and defaults
 - --metrics-dir [path, default diagnostics/trajectory_analysis]
 - --checkpoint-dir [path, default checkpoints/save_every_3]
 - --output-dir [path, default visualizations]
-- --method [umap|tsne|phate, default umap]
+- --method [umap|tsne|phate|tphate, default umap]
 - --n-neighbors [int, default 15]
 - --min-dist [float, default 0.1]
+- --time-alpha [float, default 3.0] (only for `--method tphate`) — scales the epoch feature to bias temporal continuity
 
 Reads
 - Per-run metrics CSVs and training history to build a feature matrix.
@@ -21,3 +22,7 @@ Writes (under `<output-dir>`)
 - `trajectory_embedding_3d.png` optional 3D projection
 
 Explainers: [Metric-space trajectory embeddings](../plots/trajectory_metric_space.md)
+
+Notes
+- T‑PHATE in this command is the metric-space variant: it emphasizes chronological smoothness by scaling the `epoch` feature prior to PHATE.
+- For raw weight/representation T‑PHATE with delay embeddings and temporal kernel blending, see the unified visualizer: `./wt.sh visualize` with `--viz-type [all|cnn|gru|joint|ablation-*|temporal]` and the `--t-phate*` flags.

@@ -14,6 +14,9 @@ Key figures (by viz-type)
 - board_representations.png: PHATE embedding of GRU hidden vectors for random boards at latest checkpoint; color encodes board/sample index
 - summary.png: 2×2 panel with CNN and GRU trajectories plus loss curves (train/val and value/policy)
 - cnn_gru_joint.png (joint): Shared PHATE embedding overlaying CNN and GRU trajectories for the same run; min/final loss markers drawn as filled (CNN) vs outline (GRU)
+- temporal_training.png / temporal_game.png (temporal): Hidden-state T-PHATE embeddings across two time axes:
+  - training: fix a game step and follow hidden states across epochs
+  - game: fix an epoch (min/final/latest) and follow hidden states along a simulated game
 - ablation_{cnn,gru}_trajectories.png (+ optional .gif): Multi-run overlay comparing trajectories across runs for the selected component; labels annotate epochs periodically
 - activations/activation_###.png: Grad-CAM heatmaps showing which board cells drive CNN activations for policy/value; labeled with focused move (and its probability) and predicted value
 
@@ -27,6 +30,10 @@ Common options
 - --epoch-min/--epoch-max/--epoch-step: subsample checkpoints
 - --phate-n-pca: cap dimensionality before PHATE for very high-D weights (auto when large)
 - --phate-knn/--phate-t/--phate-decay: PHATE controls
+- --t-phate / --t-phate-alpha: experimental T-PHATE time-biasing; appends a scaled time feature per checkpoint
+- Temporal: --temporal-mode [training|game], --time-steps N, --time-step K (training), --time-epoch min|final|latest|N (game)
+  Requires: --sequential-data <path to sequential .pt>; uses --board-seed to choose a game
+  T-PHATE extras: --t-phate-delay τ, --t-phate-lags L (delay embedding)
 - --ablation-center [none|anchor|normalize]: post alignment for multi-run overlays
 - --activation-target [policy|value], --activation-move, --activation-max-examples: Grad-CAM specifics
 
@@ -51,3 +58,13 @@ Tips
 - Use `--epoch-step` to reduce PHATE compute for long runs.
 - `--ablation-center normalize` recentres trajectories, making cross-run comparisons easier when absolute positions differ.
 - When Grad-CAM is noisy, set `--activation-max-examples` to a small value and verify a few boards manually.
+
+Temporal PHATE
+- Enabling `--t-phate` biases local affinities toward chronological neighbours and can clarify phase transitions.
+- Increase `--t-phate-alpha` (e.g., 2–6) for stronger temporal continuity when trajectories look fragmented.
+- For learning dynamics, use temporal mode:
+  - training: “how this position’s encoding evolves while training”
+  - game: “how the network traverses its manifold while playing a game at a fixed epoch”
+- For a more faithful T‑PHATE:
+  - Add delay embeddings with `--t-phate-delay τ --t-phate-lags L`.
+  - Blend temporal distance into PHATE with `--t-phate-kernel --t-phate-kernel-alpha A --t-phate-kernel-tau τ`.

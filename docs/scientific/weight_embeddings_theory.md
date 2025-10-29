@@ -121,3 +121,7 @@ python -m src.visualize_trajectories \
 **Implementation status**: [GRU Observability: Intuition, Methods, and Recommendations](gru_observability_literature.md) summarizes current capabilities and planned extensions.
 
 **Methodological references**: [References](references.md) section "Manifold Learning & Trajectory Embedding" provides citations for PHATE (Moon et al. 2019), T-PHATE (Rübel et al. 2023), UMAP (McInnes et al. 2018), and related methods.
+
+Temporal axes and T‑PHATE
+- Two orthogonal time axes matter for learning dynamics: training epochs and in‑game timesteps. We visualize both: (i) fix a game step and follow its hidden state across epochs; (ii) fix an epoch (e.g., min val loss) and follow hidden states across game steps.
+- T‑PHATE improves temporal structure by combining delay embeddings and a temporal affinity kernel, yielding clearer phase transitions and smoother manifold trajectories.

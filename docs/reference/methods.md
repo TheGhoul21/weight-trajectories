@@ -8,6 +8,13 @@ Concise reference for algorithms and measures used across the manual, with links
 - t‑SNE: Stochastic neighbor embedding emphasizing local neighborhoods. Library: scikit‑learn (`sklearn.manifold.TSNE`). Paper: van der Maaten & Hinton (2008).
 - UMAP: Uniform Manifold Approximation and Projection; topology‑preserving with good global structure. Library: `umap-learn` (`umap.UMAP`). Docs: https://umap-learn.readthedocs.io/
 - PHATE: Diffusion‑based embedding preserving trajectories. Library: `phate` (`phate.PHATE`). Paper: Moon et al. (2019). Docs: https://phate.readthedocs.io/
+- T‑PHATE (temporal PHATE): Extends PHATE for autocorrelated time series via delay embeddings and temporal affinity shaping. Paper: Rübel et al. (2023).
+  - Delay embedding: concatenate `[x_t, x_{t-τ}, x_{t-2τ}, …]` to encode short‑term history.
+  - Temporal kernel blending: blend Euclidean feature distance with a scaled time distance inside sequences; cross‑sequence pairs penalized.
+  - Provided here in two forms:
+    - Feature augmentation: `--t-phate --t-phate-alpha A [--t-phate-delay τ --t-phate-lags L]` (simple, robust)
+    - Precomputed blended distances: `--t-phate-kernel --t-phate-kernel-alpha A --t-phate-kernel-tau τ` (more faithful)
+  - Metric‑space variant: `scripts/visualize_trajectory_embedding.py --method tphate --time-alpha A` (scales epoch feature).
 
 ## Similarity and Alignment
 

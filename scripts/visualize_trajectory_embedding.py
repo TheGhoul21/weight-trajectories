@@ -125,10 +125,32 @@ def create_feature_matrix(df):
 
     return X_scaled, available_features
 
-def embed_trajectories(X, method='umap', n_neighbors=15, min_dist=0.1):
-    """Embed trajectories using UMAP, t-SNE, or PHATE."""
+def embed_trajectories(X, method='umap', n_neighbors=15, min_dist=0.1, time_alpha=None, feature_names=None):
+    """Embed trajectories using UMAP, t-SNE, PHATE, or TPHATE.
+
+    TPHATE: scales the temporal feature (epoch) by time_alpha before PHATE.
+    """
 
     method = (method or 'umap').lower()
+
+    if method == 'tphate':
+        if not HAS_PHATE:
+            print("PHATE not available, falling back to UMAP/t-SNE")
+            method = 'umap'
+        else:
+            # Identify epoch column if present and scale it
+            X_t = X
+            if feature_names and 'epoch' in feature_names:
+                idx = feature_names.index('epoch')
+                scale = float(time_alpha) if time_alpha is not None else 3.0
+                X_t = X.copy()
+                X_t[:, idx] = X_t[:, idx] * scale
+                print(f"Using T-PHATE (knn={max(2, n_neighbors)}, time_alpha={scale})")
+            else:
+                print("Using T-PHATE without explicit epoch feature; proceeding as PHATE")
+                X_t = X
+            reducer = phate.PHATE(n_components=2, knn=max(2, n_neighbors), random_state=42, verbose=False)
+            return reducer.fit_transform(X_t)
 
     if method == 'phate':
         if HAS_PHATE:
@@ -160,6 +182,7 @@ def _pretty_method_name(method: str) -> str:
         'umap': 'UMAP',
         'tsne': 't-SNE',
         'phate': 'PHATE',
+        'tphate': 'T-PHATE',
     }
     return mapping.get((method or '').lower(), method.upper())
 
@@ -379,9 +402,10 @@ def main():
     parser.add_argument('--metrics-dir', default='diagnostics/trajectory_analysis')
     parser.add_argument('--checkpoint-dir', default='checkpoints/save_every_3')
     parser.add_argument('--output-dir', default='visualizations')
-    parser.add_argument('--method', choices=['umap', 'tsne', 'phate'], default='umap')
+    parser.add_argument('--method', choices=['umap', 'tsne', 'phate', 'tphate'], default='umap')
     parser.add_argument('--n-neighbors', type=int, default=15)
     parser.add_argument('--min-dist', type=float, default=0.1)
+    parser.add_argument('--time-alpha', type=float, default=3.0, help='Time scaling for T-PHATE (epoch feature multiplier)')
     args = parser.parse_args()
 
     print("="*80)
@@ -406,7 +430,9 @@ def main():
     print("\nEmbedding trajectories...")
     embedding = embed_trajectories(X, method=args.method,
                                    n_neighbors=args.n_neighbors,
-                                   min_dist=args.min_dist)
+                                   min_dist=args.min_dist,
+                                   time_alpha=args.time_alpha,
+                                   feature_names=feature_names)
     print(f"Embedding shape: {embedding.shape}")
 
     # Generate visualizations

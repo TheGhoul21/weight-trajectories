@@ -5,7 +5,8 @@ Overview
 - Reveals architectural families, regime changes, and overfitting/underfitting patterns across models.
 
 How to Generate
-- `./wt.sh trajectory-embedding [--method umap|tsne|phate]` (runs `scripts/visualize_trajectory_embedding.py`)
+- `./wt.sh trajectory-embedding [--method umap|tsne|phate|tphate]` (runs `scripts/visualize_trajectory_embedding.py`)
+- T‑PHATE variant: `--method tphate --time-alpha 3` scales the epoch feature to emphasize temporal continuity
 
 Why metric space vs raw weights
 - Different architectures have incompatible parameter spaces; raw weights are not directly comparable.
@@ -104,6 +105,13 @@ embedding = reducer.fit_transform(F_scaled)
 ```
 - Smoothest trajectories
 - Best for temporal continuity
+
+**T‑PHATE (metric‑space)**:
+```bash
+./wt.sh trajectory-embedding -- --method tphate --time-alpha 3
+```
+- Epoch feature scaled by `--time-alpha` before PHATE
+- Emphasizes chronological smoothness across checkpoints
 
 **Result**: Embedding matrix of shape `(total_checkpoints, 2)` with x/y coordinates
 
