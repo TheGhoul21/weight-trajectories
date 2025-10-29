@@ -71,6 +71,7 @@ Common commands:
   trajectory-embedding     Create UMAP-style trajectory plots
   observability [subcmd]   GRU observability pipeline (extract|analyze)
   visualize [args]         Run visualization suite (run_visualization_suite.py)
+  factorial [args]         Generate factorial heatmaps across architecture sweep
   report [args]            Generate markdown/LaTeX report (generate_report.py)
   onnx [args]              Export a trained model to ONNX
 
@@ -233,6 +234,10 @@ cmd_onnx() {
   run_with_python "${SCRIPTS_DIR}/export_model_onnx.py" "$@"
 }
 
+cmd_factorial() {
+  run_with_python "${SCRIPTS_DIR}/visualize_unified.py" "$@"
+}
+
 cmd_analyze() {
   run_wizard "${SCRIPTS_DIR}/analyze_trajectories_wizard.sh" "$@"
 }
@@ -291,6 +296,9 @@ main() {
       ;;
     onnx)
       cmd_onnx "$@"
+      ;;
+    factorial)
+      cmd_factorial "$@"
       ;;
     *)
       echo "Unknown command '${command}'. Run './wt.sh help' for a list of commands." >&2

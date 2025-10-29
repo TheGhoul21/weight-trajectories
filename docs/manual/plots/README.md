@@ -18,6 +18,7 @@ Complete guide to interpreting every visualization and CSV output produced by th
 
 ### Cross-Model Comparison
 - **[cka.md](./cka.md)** - Representational similarity heatmaps
+- **[factorial_heatmaps.md](./factorial_heatmaps.md)** - Factorial design analysis (9 metrics × 9 models)
 
 ### CNN Visualization
 - **[activations.md](./activations.md)** - Grad-CAM attention maps
@@ -37,6 +38,7 @@ Complete guide to interpreting every visualization and CSV output produced by th
 | `./wt.sh observability fixed` | [fixed_points.md](./fixed_points.md) | Fixed-point NPZ files |
 | `./wt.sh observability evolve` | [fixed_points.md](./fixed_points.md) | Classification counts, drift plots |
 | `./wt.sh cka` | [cka.md](./cka.md) | CKA similarity heatmaps |
+| `./wt.sh factorial` | [factorial_heatmaps.md](./factorial_heatmaps.md) | Factorial analysis heatmaps (9 metrics) |
 | `./wt.sh visualize --viz-type activations` | [activations.md](./activations.md) | Grad-CAM heatmaps |
 | `./wt.sh visualize` | [visualize_unified.md](./visualize_unified.md) | Multi-type visualization suite |
 
