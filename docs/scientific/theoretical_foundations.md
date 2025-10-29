@@ -347,7 +347,7 @@ Empirical observations (Huang et al., 2024; Saxe et al., 2019):
 - Win rate increase ↔ basin boundaries align with game-theoretic strategy
 - Plateaus in training ↔ local minima in attractor landscape configuration
 
-**Test**: Correlate fixed-point movement with training metrics (see [GRU Observability: Intuition, Methods, and Recommendations](scientific/gru_observability_literature)).
+**Test**: Correlate fixed-point movement with training metrics (see [GRU Observability: Intuition, Methods, and Recommendations](gru_observability_literature.md)).
 
 ---
 
@@ -440,7 +440,7 @@ Understanding
 
 6. **Training dynamics = evolution of attractor landscapes**, connecting learning to computational function.
 
-7. **Many of these analyses are implemented**, with high-priority gaps in fixed-point finding and attractor evolution tracking (see [GRU Observability: Intuition, Methods, and Recommendations](scientific/gru_observability_literature)).
+7. **Many of these analyses are implemented**, with high-priority gaps in fixed-point finding and attractor evolution tracking (see [GRU Observability: Intuition, Methods, and Recommendations](gru_observability_literature.md)).
 
 ---
 
@@ -454,4 +454,4 @@ For readers new to these concepts:
 - **Computational neuroscience**: Dayan, P., & Abbott, L. F. (2001). *Theoretical Neuroscience*. MIT Press.
 - **Attractor networks**: Khona, M., & Fiete, I. R. (2022). Attractor and integrator networks in the brain. *Nature Reviews Neuroscience*, 23, 744–766.
 
-See [References](scientific/references) for full citations of all papers mentioned.
+See [References](references.md) for full citations of all papers mentioned.

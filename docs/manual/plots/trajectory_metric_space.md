@@ -19,7 +19,7 @@ Recommended usage
 - Use UMAP as default; color by model, shape by GRU size, and size by epoch.
 - Validate findings with PHATE/PCA sensitivity checks; inspect specific regimes by subsetting epochs.
  
-See also: [Methods Reference](../../reference/methods).
+See also: [Methods Reference](../../reference/methods.md).
 
 ## Purpose
 

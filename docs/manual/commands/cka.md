@@ -33,4 +33,4 @@ Writes (under `<output-dir>/<representation>/`)
 - `cka_{rep}_similarity_epoch_{E}.csv` raw matrices
 - Optional: `cka_{rep}_heatmap_animation.gif|mp4`
 
-Plot explainers: see [CKA Similarity](manual/plots/cka)
+Plot explainers: see [CKA Similarity](../plots/cka.md)

@@ -8,7 +8,7 @@ How to Generate
 - Data collection: `./wt.sh observability extract` (writes to `diagnostics/gru_observability/<model>/`)
 - Analysis and plots: `./wt.sh observability analyze` (runs `scripts/analyze_gru_observability_results.py`)
  
-See also: [Methods Reference](../../reference/methods) for mutual information, probes, PHATE, and Grad‑CAM library links.
+See also: [Methods Reference](../../reference/methods.md) for mutual information, probes, PHATE, and Grad‑CAM library links.
 
 ## Purpose
 

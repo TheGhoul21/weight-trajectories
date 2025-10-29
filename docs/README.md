@@ -21,14 +21,14 @@ Complete practical guide to all commands, plots, and workflows
 
 ### [Scientific Background](scientific/)
 Theoretical foundations and literature review
-- [Theoretical Foundations](scientific/theoretical_foundations) - Dynamical systems, information theory, neuroscience
-- [Case Studies](scientific/case_studies) - Examples from RNN interpretability research
-- [References](scientific/references) - Comprehensive bibliography (50+ papers)
+- [Theoretical Foundations](scientific/theoretical_foundations.md) - Dynamical systems, information theory, neuroscience
+- [Case Studies](scientific/case_studies.md) - Examples from RNN interpretability research
+- [References](scientific/references.md) - Comprehensive bibliography (50+ papers)
 
 ### [Technical Reference](reference/)
 Architecture and shared methods
-- [Architecture Diagrams](reference/architecture_diagrams) - How to generate model visualizations
-- [Methods Reference](reference/methods) - Algorithms and library links
+- [Architecture Diagrams](reference/architecture_diagrams.md) - How to generate model visualizations
+- [Methods Reference](reference/methods.md) - Algorithms and library links
 
 ---
 
@@ -243,15 +243,15 @@ See [User Manual](manual/) for complete guide.
 ### For Researchers: Understand the Theory
 
 Start with [Scientific Background](scientific/):
-1. [Theoretical Foundations](scientific/theoretical_foundations) - Core concepts
-2. [Case Studies](scientific/case_studies) - Concrete examples
-3. [GRU Observability Literature](scientific/gru_observability_literature) - Gap analysis and priorities
+1. [Theoretical Foundations](scientific/theoretical_foundations.md) - Core concepts
+2. [Case Studies](scientific/case_studies.md) - Concrete examples
+3. [GRU Observability Literature](scientific/gru_observability_literature.md) - Gap analysis and priorities
 
 ### For Developers: Architecture Details
 
 Check [Technical Reference](reference/):
-- [Architecture Diagrams](reference/architecture_diagrams) - Model structure
-- [Methods Reference](reference/methods) - Algorithms and library links
+- [Architecture Diagrams](reference/architecture_diagrams.md) - Model structure
+- [Methods Reference](reference/methods.md) - Algorithms and library links
 
 ---
 
@@ -290,4 +290,4 @@ Methods inspired by computational neuroscience:
 - **Mutual information**: Kraskov et al. (2004) - Physical Review E
 - **Attractor networks**: Khona & Fiete (2022) - Nature Reviews Neuroscience
 
-See [complete bibliography](scientific/references) for 50+ citations.
+See [complete bibliography](scientific/references.md) for 50+ citations.

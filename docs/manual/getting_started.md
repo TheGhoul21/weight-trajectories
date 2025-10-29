@@ -8,8 +8,8 @@ This manual doubles as a book: you can learn the core ideas while running the co
 - Run: `./wt.sh dataset flat --test-run` then `./wt.sh train --data data/connect4_test.pt --epochs 30`
 - Next: inspect outputs with `./wt.sh metrics` and `./wt.sh visualize`.
 - Learn more:
-  - Commands: [dataset](../manual/commands/dataset), [train](../manual/commands/train)
-  - Plots: [Checkpoint Metrics CSV](../manual/plots/checkpoint_metrics_csv), [Unified Visualization Suite](../manual/plots/visualize_unified)
+  - Commands: [dataset](commands/dataset.md), [train](commands/train.md)
+  - Plots: [Checkpoint Metrics CSV](plots/checkpoint_metrics_csv.md), [Unified Visualization Suite](plots/visualize_unified.md)
 
 ## 2) Analyze GRU Dynamics
 
@@ -17,20 +17,20 @@ This manual doubles as a book: you can learn the core ideas while running the co
 - Run: `./wt.sh observability extract` then `./wt.sh observability analyze`
 - Optional: `./wt.sh observability mi`, `./wt.sh observability fixed`, `./wt.sh observability evolve`
 - Learn more:
-  - Plots: [GRU Observability](../manual/plots/gru_observability), [GRU Mutual Information](../manual/plots/gru_mutual_info), [Fixed Points](../manual/plots/fixed_points)
-  - Scientific: [GRU Observability (Intuition)](../scientific/gru_observability_literature), [Theoretical Foundations](../scientific/theoretical_foundations)
+  - Plots: [GRU Observability](plots/gru_observability.md), [GRU Mutual Information](plots/gru_mutual_info.md), [Fixed Points](plots/fixed_points.md)
+  - Scientific: [GRU Observability (Intuition)](../scientific/gru_observability_literature.md), [Theoretical Foundations](../scientific/theoretical_foundations.md)
 
 ## 3) Compare Architectures
 
 - Goal: see how models differ across capacities.
 - Run: `./wt.sh train-all`, then `./wt.sh trajectory-embedding`, and `./wt.sh cka --representation gru`
 - Learn more:
-  - Plots: [Metric-Space Trajectories](../manual/plots/trajectory_metric_space), [CKA Similarity](../manual/plots/cka)
-  - Theory: [Weight Trajectory Theory](../scientific/weight_embeddings_theory)
+  - Plots: [Metric-Space Trajectories](plots/trajectory_metric_space.md), [CKA Similarity](plots/cka.md)
+  - Theory: [Weight Trajectory Theory](../scientific/weight_embeddings_theory.md)
 
 ## Libraries and Methods
 
-- Methods reference: [Methods](../reference/methods) (CKA, MI, PHATE/UMAP/PCA, Grad‑CAM; with links to scikit‑learn, umap-learn, phate, PyTorch).
+- Methods reference: [Methods](../reference/methods.md) (CKA, MI, PHATE/UMAP/PCA, Grad‑CAM; with links to scikit‑learn, umap-learn, phate, PyTorch).
 - Examples:
   - Mutual information via scikit‑learn: `sklearn.feature_selection.mutual_info_classif` / `mutual_info_regression`
   - Probes via scikit‑learn: `sklearn.linear_model.LogisticRegression` (+ `sklearn.preprocessing.StandardScaler`)

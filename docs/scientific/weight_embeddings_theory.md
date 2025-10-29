@@ -112,12 +112,12 @@ python -m src.visualize_trajectories \
 
 ## Documentation Cross-References
 
-**Mathematical foundations**: [Theoretical Foundations](scientific/theoretical_foundations#4-manifold-learning-and-trajectory-embedding) covers the manifold hypothesis, PHATE algorithm details, diffusion geometry, and comparative analysis with PCA, t-SNE, and UMAP.
+**Mathematical foundations**: [Theoretical Foundations](theoretical_foundations.md#4-manifold-learning-and-trajectory-embedding) covers the manifold hypothesis, PHATE algorithm details, diffusion geometry, and comparative analysis with PCA, t-SNE, and UMAP.
 
-**Learning dynamics connection**: [Theoretical Foundations](scientific/theoretical_foundations#6-learning-dynamics-how-attractors-emerge) explains how weight trajectories in parameter space correspond to evolution of attractor landscapes in hidden state space.
+**Learning dynamics connection**: [Theoretical Foundations](theoretical_foundations.md#6-learning-dynamics-how-attractors-emerge) explains how weight trajectories in parameter space correspond to evolution of attractor landscapes in hidden state space.
 
-**Practical applications**: [Case Studies](scientific/case_studies) presents Maheswaranathan's line attractor analysis using PCA (case study #2) and Yang's compositional PCA for multi-task RNNs (case study #5), demonstrating trajectory analysis in different contexts.
+**Practical applications**: [Case Studies](case_studies.md) presents Maheswaranathan's line attractor analysis using PCA (case study #2) and Yang's compositional PCA for multi-task RNNs (case study #5), demonstrating trajectory analysis in different contexts.
 
-**Implementation status**: [GRU Observability: Intuition, Methods, and Recommendations](scientific/gru_observability_literature) summarizes current capabilities and planned extensions.
+**Implementation status**: [GRU Observability: Intuition, Methods, and Recommendations](gru_observability_literature.md) summarizes current capabilities and planned extensions.
 
-**Methodological references**: [References](scientific/references) section "Manifold Learning & Trajectory Embedding" provides citations for PHATE (Moon et al. 2019), T-PHATE (Rübel et al. 2023), UMAP (McInnes et al. 2018), and related methods.
+**Methodological references**: [References](references.md) section "Manifold Learning & Trajectory Embedding" provides citations for PHATE (Moon et al. 2019), T-PHATE (Rübel et al. 2023), UMAP (McInnes et al. 2018), and related methods.

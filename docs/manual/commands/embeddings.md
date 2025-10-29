@@ -39,4 +39,4 @@ Writes
   - `repr_{method}.png` if board representations enabled
 - Overlay comparisons under `<output-dir>/comparisons/` when `--compare`
 
-See plot reference: [Weight/representation embeddings](manual/plots/embeddings_weights)
+See plot reference: [Weight/representation embeddings](../plots/embeddings_weights.md)

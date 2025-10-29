@@ -95,7 +95,7 @@ evolve (visualize fixed-point evolution)
   - <model>_attractor_drift.png
 
 Explainers
-- See [GRU Observability](manual/plots/gru_observability)
-- See [GRU Mutual Information](manual/plots/gru_mutual_info)
-- See [GRU Fixed Points and Evolution](manual/plots/fixed_points)
-- See [Methods Reference](../../reference/methods) for library links (scikit‑learn MI, PHATE, UMAP, Grad‑CAM).
+- See [GRU Observability](../plots/gru_observability.md)
+- See [GRU Mutual Information](../plots/gru_mutual_info.md)
+- See [GRU Fixed Points and Evolution](../plots/fixed_points.md)
+- See [Methods Reference](../../reference/methods.md) for library links (scikit‑learn MI, PHATE, UMAP, Grad‑CAM).

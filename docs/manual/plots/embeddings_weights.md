@@ -64,7 +64,7 @@ Four dimensionality reduction techniques, each revealing different aspects of tr
 - **Best for**: Sparse checkpoint sampling (few epochs), temporal continuity
 - **Characteristics**: Smoothest trajectories; handles sparse data well
 - **Auto-tuning**: `knn = max(2, min(5, n_samples-1))`
-- **Why this choice**: See [Weight Trajectory Analysis with PHATE](scientific/weight_embeddings_theory)
+- **Why this choice**: See [Weight Trajectory Analysis with PHATE](../../scientific/weight_embeddings_theory.md)
 
 ## Visual Elements
 

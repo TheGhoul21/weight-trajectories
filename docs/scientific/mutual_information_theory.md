@@ -6,7 +6,7 @@ Overview
 
 How to Run
 - CLI: `./wt.sh observability mi` (runs `scripts/compute_hidden_mutual_info.py` after analyze).
-- Libraries: scikit‑learn (`sklearn.feature_selection.mutual_info_classif`, `mutual_info_regression`); see [Methods](../reference/methods).
+- Libraries: scikit‑learn (`sklearn.feature_selection.mutual_info_classif`, `mutual_info_regression`); see [Methods](../reference/methods.md).
 
 ## Conceptual Foundation
 
@@ -266,10 +266,10 @@ Outputs:
 
 ## Integration with Analysis Framework
 
-**Theoretical background**: [Theoretical Foundations](scientific/theoretical_foundations#3-information-theory-for-interpretability) develops the mathematical foundation for MI estimation, including connections to entropy, conditional probability, and information-theoretic bounds.
+**Theoretical background**: [Theoretical Foundations](theoretical_foundations.md#3-information-theory-for-interpretability) develops the mathematical foundation for MI estimation, including connections to entropy, conditional probability, and information-theoretic bounds.
 
-**Comparative methods**: [Case Studies](scientific/case_studies) presents AlphaZero concept probing (case study #3) and Karpathy's interpretable neuron discovery (case study #6), showing how MI analysis complements and extends manual inspection approaches.
+**Comparative methods**: [Case Studies](case_studies.md) presents AlphaZero concept probing (case study #3) and Karpathy's interpretable neuron discovery (case study #6), showing how MI analysis complements and extends manual inspection approaches.
 
-**Research frontiers**: [GRU Observability: Intuition, Methods, and Recommendations](scientific/gru_observability_literature) identifies MI temporal tracking as a high‑impact addition, enabling analysis of how representations organize during training.
+**Research frontiers**: [GRU Observability: Intuition, Methods, and Recommendations](gru_observability_literature.md) identifies MI temporal tracking as a high‑impact addition, enabling analysis of how representations organize during training.
 
-**Complete bibliography**: [References](scientific/references) section "Information Theory & Mutual Information" provides citations for MI estimation methods, applications to neural network interpretability, and theoretical foundations.
+**Complete bibliography**: [References](references.md) section "Information Theory & Mutual Information" provides citations for MI estimation methods, applications to neural network interpretability, and theoretical foundations.

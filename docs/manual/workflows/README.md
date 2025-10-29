@@ -11,7 +11,7 @@ How to Use
 
 ## Available Workflows
 
-### [GRU Interpretability Pipeline](manual/workflows/gru_interpretability)
+### [GRU Interpretability Pipeline](gru_interpretability.md)
 Complete guide to analyzing recurrent network internals.
 
 **What it covers**:
@@ -48,7 +48,7 @@ Complete guide to analyzing recurrent network internals.
 1. Check training curves in `training_history.json`
 2. Compute weight metrics: `./wt.sh metrics`
 3. Visualize trajectory: `./wt.sh embeddings`
-4. If using GRU: [GRU Interpretability Pipeline](./gru_interpretability.md)
+4. If using GRU: [GRU Interpretability Pipeline](gru_interpretability.md)
 
 **What to look for**:
 - Weight norms growing? (overfitting signal)
@@ -57,7 +57,7 @@ Complete guide to analyzing recurrent network internals.
 
 ### "I want to understand GRU behavior"
 
-**→ [GRU Interpretability Pipeline](manual/workflows/gru_interpretability)**
+**→ [GRU Interpretability Pipeline](gru_interpretability.md)**
 
 Full 5-stage analysis covering:
 - Memory mechanisms (gates, timescales)
@@ -71,7 +71,7 @@ Full 5-stage analysis covering:
 1. Train all models: `./wt.sh train-all`
 2. CKA similarity: `./wt.sh cka --representation gru`
 3. Metric-space embedding: `./wt.sh trajectory-embedding`
-4. Per-model GRU analysis: [GRU pipeline](manual/workflows/gru_interpretability) for each
+4. Per-model GRU analysis: [GRU pipeline](gru_interpretability.md) for each
 
 **Questions answered**:
 - Do GRU32 and GRU128 learn similar representations?
@@ -81,16 +81,16 @@ Full 5-stage analysis covering:
 ### "I need publication figures"
 
 **For weight trajectories**:
-- [embeddings_weights](manual/plots/embeddings_weights) - Use PHATE with annotations
+- [embeddings_weights](../plots/embeddings_weights.md) - Use PHATE with annotations
 
 **For GRU analysis**:
-- [GRU Interpretability Pipeline](manual/workflows/gru_interpretability) → Scenario 3: "Preparing paper figures"
+- [GRU Interpretability Pipeline](gru_interpretability.md) → Scenario 3: "Preparing paper figures"
   - Gate trajectory plots
   - MI heatmaps (per-dimension)
   - Fixed-point evolution
 
 **For CNN visualization**:
-- [activations](manual/plots/activations) - Grad-CAM on critical game states
+- [activations](../plots/activations.md) - Grad-CAM on critical game states
 
 ---
 

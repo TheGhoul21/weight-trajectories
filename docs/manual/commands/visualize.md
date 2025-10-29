@@ -29,4 +29,4 @@ Related CLI (src.visualize_trajectories)
   - PHATE tuning (phate-n-pca, phate-knn, phate-t, phate-decay)
   - Grad-CAM activations controls
 
-Artifacts documented at: [Unified visualization suite](manual/plots/visualize_unified) and [CNN activation maps](manual/plots/activations).
+Artifacts documented at: [Unified visualization suite](../plots/visualize_unified.md) and [CNN activation maps](../plots/activations.md).

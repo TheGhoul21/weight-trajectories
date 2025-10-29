@@ -6,10 +6,10 @@ Architecture specifications, internal documentation, and technical guides.
 
 ## Contents
 
-### [Methods Reference](methods)
+### [Methods Reference](methods.md)
 Common algorithms and measures (CKA, MI, Grad‑CAM, PHATE/UMAP/t‑SNE/PCA) with links to libraries.
 
-### [Architecture Diagrams](architecture_diagrams)
+### [Architecture Diagrams](architecture_diagrams.md)
 How to generate publication-ready diagrams of the ResNet+GRU model.
 
 **Tools covered**:
@@ -33,14 +33,14 @@ How to generate publication-ready diagrams of the ResNet+GRU model.
 ## Quick Links
 
 ### For Developers
-- **Model Architecture**: [Architecture Diagrams](architecture_diagrams)
+- **Model Architecture**: [Architecture Diagrams](architecture_diagrams.md)
 
 ### For Documentation Maintainers
 - **Update Workflow**:
   1. Implement feature
   2. Update user manual: [User Manual](../manual/)
   3. Add scientific context if novel: [Scientific Background](../scientific/)
-  4. Reference shared methods: [Methods](methods)
+  4. Reference shared methods: [Methods](methods.md)
   5. Update main README: [Documentation Home](../)
 
 ---

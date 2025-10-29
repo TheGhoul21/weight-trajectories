@@ -29,7 +29,7 @@ Writes
 - diagnostics/trajectory_analysis/ANALYSIS_REPORT.md
 
 Artifacts are explained under:
-- [Checkpoint metrics CSV](manual/plots/checkpoint_metrics_csv)
-- [Unified visualization suite](manual/plots/visualize_unified)
-- [Metric-space trajectory embeddings](manual/plots/trajectory_metric_space)
-- [Report generation](manual/plots/visualize_unified)
+- [Checkpoint metrics CSV](../plots/checkpoint_metrics_csv.md)
+- [Unified visualization suite](../plots/visualize_unified.md)
+- [Metric-space trajectory embeddings](../plots/trajectory_metric_space.md)
+- [Report generation](../plots/visualize_unified.md)

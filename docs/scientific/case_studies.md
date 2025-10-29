@@ -5,7 +5,7 @@ Overview
 - Use this as a learning companion: skim the “Key Findings” for intuition, then see “Implementation Notes” for code ideas.
 
 How to Use
-- New to these methods? Cross‑check terms with [Theoretical Foundations](theoretical_foundations) and implementations with [Methods](../reference/methods).
+- New to these methods? Cross‑check terms with [Theoretical Foundations](theoretical_foundations.md) and implementations with [Methods](../reference/methods.md).
 - When code appears (e.g., probes, MI), we rely on standard libraries like scikit‑learn; see links in Methods.
 
 ---
@@ -75,7 +75,7 @@ Each case study follows a common structure:
 - Use PHATE to visualize attractor layout before computing fixed points
 
 ### Implementation Notes
-Libraries: scikit‑learn (`LogisticRegression`), NumPy, SciPy; see [Methods](../reference/methods).
+Libraries: scikit‑learn (`LogisticRegression`), NumPy, SciPy; see [Methods](../reference/methods.md).
 
 ```python
 # Pseudocode from Sussillo & Barak 2013
@@ -191,7 +191,7 @@ def find_fixed_points(rnn, input_context, n_inits=128):
 - Hybrid structures possible (line connecting discrete clusters)
 
 ### Implementation Notes
-Libraries: scikit‑learn (PCA), NumPy; see [Methods](../reference/methods).
+Libraries: scikit‑learn (PCA), NumPy; see [Methods](../reference/methods.md).
 
 **Slow-point finding** (easier than fixed-point finding):
 
@@ -286,7 +286,7 @@ def find_slow_points(rnn, sentence_trajectories, speed_threshold=0.01):
 - Gap: richer feature set (only 5 features now, expand to 15-20)
 
 ### Implementation Notes
-Libraries: scikit‑learn (`LogisticRegression`), NumPy, Pandas; see [Methods](../reference/methods).
+Libraries: scikit‑learn (`LogisticRegression`), NumPy, Pandas; see [Methods](../reference/methods.md).
 
 **Probing protocol** (from McGrath et al.):
 
@@ -635,4 +635,4 @@ Each case study has an associated paper:
 - **Huang et al. (2024)**: Motif reuse [Nature Neuroscience]
 - **Karpathy et al. (2015)**: Interpretable neurons [arXiv]
 
-See [References](scientific/references) for full citations and additional resources.
+See [References](references.md) for full citations and additional resources.

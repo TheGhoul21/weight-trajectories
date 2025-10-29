@@ -35,4 +35,4 @@ CSV columns
 - repr_total_variance (optional)
 - repr_top{1..K}_ratio (optional)
 
-See also: Plot/CSV reference → [Checkpoint metrics CSV](manual/plots/checkpoint_metrics_csv)
+See also: Plot/CSV reference → [Checkpoint metrics CSV](../plots/checkpoint_metrics_csv.md)

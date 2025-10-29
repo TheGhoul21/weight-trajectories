@@ -139,4 +139,4 @@ Tips
 - Compute per‑epoch 9×9 similarity matrices; visualize as heatmaps and animate over epochs.
 - Optionally cluster rows/columns to reveal architectural families and convergence patterns.
  
-See also: [Methods Reference](../../reference/methods).
+See also: [Methods Reference](../../reference/methods.md).

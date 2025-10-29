@@ -42,5 +42,5 @@ Concise reference for algorithms and measures used across the manual, with links
 
 ## Cross‑References
 
-- Plot docs: [CKA Similarity](../manual/plots/cka), [Metric‑Space Trajectory Embeddings](../manual/plots/trajectory_metric_space), [GRU Observability](../manual/plots/gru_observability), [Activations](../manual/plots/activations).
-- Scientific background: [Theoretical Foundations](../scientific/theoretical_foundations), [GRU Observability](../scientific/gru_observability_literature), [Weight Trajectory Theory](../scientific/weight_embeddings_theory).
+- Plot docs: [CKA Similarity](../manual/plots/cka.md), [Metric‑Space Trajectory Embeddings](../manual/plots/trajectory_metric_space.md), [GRU Observability](../manual/plots/gru_observability.md), [Activations](../manual/plots/activations.md).
+- Scientific background: [Theoretical Foundations](../scientific/theoretical_foundations.md), [GRU Observability](../scientific/gru_observability_literature.md), [Weight Trajectory Theory](../scientific/weight_embeddings_theory.md).
