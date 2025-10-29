@@ -444,13 +444,20 @@ def plot_high_mi_dimension_values(
                     "dimension_value": dim_values,
                     "feature": feature_vals.astype(int),
                 })
+                # Use hue matching x to enable palette without triggering FutureWarning, then remove legend.
                 sns.violinplot(
                     data=plot_data,
                     x="feature",
                     y="dimension_value",
+                    hue="feature",
                     ax=ax,
                     palette="Set2",
+                    dodge=False,
                 )
+                # Remove redundant legend created by hue
+                leg = ax.get_legend()
+                if leg is not None:
+                    leg.remove()
                 ax.set_xlabel(f"{feature}")
                 ax.set_ylabel(f"Dim {best_dim} value")
             else:

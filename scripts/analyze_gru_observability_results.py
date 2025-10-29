@@ -33,7 +33,7 @@ import seaborn as sns
 from sklearn.linear_model import LogisticRegression
 from sklearn.exceptions import ConvergenceWarning
 import warnings
-from sklearn.metrics import accuracy_score, f1_score
+from sklearn.metrics import accuracy_score, f1_score, balanced_accuracy_score, roc_auc_score, average_precision_score
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
@@ -136,6 +136,17 @@ def parse_args() -> argparse.Namespace:
         default=1,
         help="Number of worker processes/threads to use (currently unused; reserved for future parallelism).",
     )
+    parser.add_argument(
+        "--class-weight",
+        choices=["none", "balanced"],
+        default="balanced",
+        help="Handle class imbalance in probes by using sklearn's class_weight (default: balanced).",
+    )
+    parser.add_argument(
+        "--balance-train",
+        action="store_true",
+        help="Under-sample the majority class in the training split to approximate a 1:1 class ratio.",
+    )
     return parser.parse_args()
 
 
@@ -169,7 +180,6 @@ def load_metrics_table(analysis_dir: Path) -> pd.DataFrame:
         raise FileNotFoundError(f"No metrics.csv found under {analysis_dir}")
     combined = pd.concat(rows, ignore_index=True)
     return combined
-
 
 def plot_gate_trajectories(df: pd.DataFrame, output_dir: Path, palette: str) -> None:
     sns.set_style("whitegrid")
@@ -422,8 +432,20 @@ def run_probes(
     rng: np.random.Generator,
     progress_interval: int = 20,
     workers: int = 1,
+    class_weight: str = "balanced",
+    balance_train: bool = False,
 ) -> None:
     component_rows: Dict[str, List[Dict[str, object]]] = {}
+    # Aggregate confusion counts across models for compact, informative confusion matrices
+    # Key: (component, feature, epoch) -> counts dict
+    confusion_counts: Dict[Tuple[str, str, int], Dict[str, int]] = {}
+    # For density plots at the final probed epoch, store scores and labels aggregated across models
+    try:
+        _final_epoch_target = max(list(epochs))
+    except Exception:
+        _final_epoch_target = None
+    score_store: Dict[Tuple[str, str], List[np.ndarray]] = {}
+    label_store: Dict[Tuple[str, str], List[np.ndarray]] = {}
 
     component_sequence = list(dict.fromkeys(components))
     component_map = {"gru": "hidden", "cnn": "cnn"}
@@ -494,6 +516,21 @@ def run_probes(
                     X_train, X_test, y_train, y_test = train_test_split(
                         X, y, test_size=0.3, random_state=0, stratify=y
                     )
+
+                    # Optionally under-sample majority class in training split
+                    if balance_train:
+                        classes, class_counts = np.unique(y_train, return_counts=True)
+                        if classes.size == 2:
+                            maj_class = classes[np.argmax(class_counts)]
+                            min_class = classes[np.argmin(class_counts)]
+                            n_min = class_counts.min()
+                            idx_min = np.where(y_train == min_class)[0]
+                            idx_maj = np.where(y_train == maj_class)[0]
+                            if idx_maj.size > n_min:
+                                idx_maj = rng.choice(idx_maj, size=n_min, replace=False)
+                            keep_idx = np.concatenate([idx_min, idx_maj])
+                            X_train = X_train[keep_idx]
+                            y_train = y_train[keep_idx]
                     if np.unique(y_train).size < 2:
                         continue
 
@@ -516,12 +553,14 @@ def run_probes(
                         )
 
                     # Real probe with increased iterations and L2 regularization
+                    sk_class_weight = None if class_weight == "none" else "balanced"
                     clf = LogisticRegression(
                         max_iter=5000,
                         solver='lbfgs',
                         C=1.0,  # Regularization strength
                         random_state=0,
-                        tol=1e-4
+                        tol=1e-4,
+                        class_weight=sk_class_weight,
                     )
                     try:
                         with warnings.catch_warnings():
@@ -536,6 +575,7 @@ def run_probes(
                                 C=1.0,
                                 random_state=0,
                                 tol=1e-4,
+                                class_weight=sk_class_weight,
                             )
                             with warnings.catch_warnings():
                                 warnings.filterwarnings("ignore", category=ConvergenceWarning)
@@ -546,6 +586,44 @@ def run_probes(
                     y_pred = clf.predict(X_test_scaled)
                     acc = accuracy_score(y_test, y_pred)
                     f1 = f1_score(y_test, y_pred, average="binary")
+                    # Update aggregated confusion counts
+                    tp = int(np.sum((y_pred == 1) & (y_test == 1)))
+                    tn = int(np.sum((y_pred == 0) & (y_test == 0)))
+                    fp = int(np.sum((y_pred == 1) & (y_test == 0)))
+                    fn = int(np.sum((y_pred == 0) & (y_test == 1)))
+                    key_cc = (component, feature, epoch)
+                    bucket = confusion_counts.setdefault(key_cc, {"tp": 0, "tn": 0, "fp": 0, "fn": 0})
+                    bucket["tp"] += tp
+                    bucket["tn"] += tn
+                    bucket["fp"] += fp
+                    bucket["fn"] += fn
+                    # Per-class accuracy (recall per class)
+                    pos_mask = y_test == 1
+                    neg_mask = y_test == 0
+                    if np.any(pos_mask):
+                        pos_accuracy = (y_pred[pos_mask] == y_test[pos_mask]).mean()
+                    else:
+                        pos_accuracy = float('nan')
+                    if np.any(neg_mask):
+                        neg_accuracy = (y_pred[neg_mask] == y_test[neg_mask]).mean()
+                    else:
+                        neg_accuracy = float('nan')
+                    bal_acc = balanced_accuracy_score(y_test, y_pred)
+                    try:
+                        y_scores = clf.predict_proba(X_test_scaled)[:, 1]
+                        roc_auc = roc_auc_score(y_test, y_scores)
+                        ap = average_precision_score(y_test, y_scores)
+                    except Exception:
+                        roc_auc = float('nan')
+                        ap = float('nan')
+                    # Store scores/labels at final epoch for lean density plots
+                    if _final_epoch_target is not None and epoch == _final_epoch_target:
+                        key_sf = (component, feature)
+                        score_store.setdefault(key_sf, []).append(y_scores)
+                        label_store.setdefault(key_sf, []).append(y_test)
+                    _, test_counts = np.unique(y_test, return_counts=True)
+                    majority_baseline = test_counts.max() / test_counts.sum()
+                    adjusted_accuracy = acc - majority_baseline
 
                     # Control task: permuted labels
                     y_train_permuted = rng.permutation(y_train)
@@ -555,7 +633,8 @@ def run_probes(
                         solver='lbfgs',
                         C=1.0,
                         random_state=0,
-                        tol=1e-4
+                        tol=1e-4,
+                        class_weight=sk_class_weight,
                     )
                     try:
                         with warnings.catch_warnings():
@@ -569,6 +648,7 @@ def run_probes(
                                 C=1.0,
                                 random_state=0,
                                 tol=1e-4,
+                                class_weight=sk_class_weight,
                             )
                             with warnings.catch_warnings():
                                 warnings.filterwarnings("ignore", category=ConvergenceWarning)
@@ -578,6 +658,25 @@ def run_probes(
                             continue
                     y_pred_control = clf_control.predict(X_test_scaled)
                     acc_control = accuracy_score(y_test_permuted, y_pred_control)
+                    # Per-class control accuracies (optional, helpful for diagnostics)
+                    pos_mask_ctrl = y_test_permuted == 1
+                    neg_mask_ctrl = y_test_permuted == 0
+                    if np.any(pos_mask_ctrl):
+                        pos_accuracy_control = (y_pred_control[pos_mask_ctrl] == y_test_permuted[pos_mask_ctrl]).mean()
+                    else:
+                        pos_accuracy_control = float('nan')
+                    if np.any(neg_mask_ctrl):
+                        neg_accuracy_control = (y_pred_control[neg_mask_ctrl] == y_test_permuted[neg_mask_ctrl]).mean()
+                    else:
+                        neg_accuracy_control = float('nan')
+                    bal_acc_control = balanced_accuracy_score(y_test_permuted, y_pred_control)
+                    try:
+                        y_scores_ctrl = clf_control.predict_proba(X_test_scaled)[:, 1]
+                        roc_auc_control = roc_auc_score(y_test_permuted, y_scores_ctrl)
+                        ap_control = average_precision_score(y_test_permuted, y_scores_ctrl)
+                    except Exception:
+                        roc_auc_control = float('nan')
+                        ap_control = float('nan')
                     completed += 1
                     if completed % progress_interval == 0:
                         elapsed = time.time() - t0
@@ -596,8 +695,21 @@ def run_probes(
                         "component": component,
                         "accuracy": float(acc),
                         "f1": float(f1),
+                        "pos_accuracy": float(pos_accuracy),
+                        "neg_accuracy": float(neg_accuracy),
+                        "balanced_accuracy": float(bal_acc),
+                        "roc_auc": float(roc_auc),
+                        "average_precision": float(ap),
+                        "majority_baseline": float(majority_baseline),
+                        "adjusted_accuracy": float(adjusted_accuracy),
                         "control_accuracy": float(acc_control),
+                        "control_pos_accuracy": float(pos_accuracy_control),
+                        "control_neg_accuracy": float(neg_accuracy_control),
+                        "control_balanced_accuracy": float(bal_acc_control),
+                        "control_roc_auc": float(roc_auc_control),
+                        "control_average_precision": float(ap_control),
                         "signal_over_control": float(acc - acc_control),
+                        "balanced_signal_over_control": float(bal_acc - bal_acc_control),
                     }
                     row.update(model_meta)
                     component_rows.setdefault(component, []).append(row)
@@ -621,7 +733,7 @@ def run_probes(
         df.to_csv(component_dir / "probe_results.csv", index=False)
         print(f"[Probes] Wrote results for component={component} to {component_dir / 'probe_results.csv'}", flush=True)
 
-        # Plot 1: Regular accuracy
+        # Plot 1: Regular accuracy (kept for backward compatibility)
         plt.figure(figsize=(10, 6))
         sns.lineplot(
             data=df,
@@ -638,6 +750,35 @@ def run_probes(
         plt.tight_layout()
         plt.savefig(component_dir / "probe_accuracy.png", dpi=300)
         plt.close()
+
+        # Plot 1 (compact): Overall vs Pos vs Neg accuracy in a single figure
+        if set(["pos_accuracy", "neg_accuracy"]).issubset(df.columns):
+            acc_long = pd.melt(
+                df,
+                id_vars=["model", "epoch", "feature", "gru", "channels", "kernel", "component"],
+                value_vars=["accuracy", "pos_accuracy", "neg_accuracy"],
+                var_name="metric",
+                value_name="value",
+            )
+            metric_labels = {"accuracy": "Overall", "pos_accuracy": "+ (pos)", "neg_accuracy": "− (neg)"}
+            acc_long["metric_label"] = acc_long["metric"].map(metric_labels)
+            plt.figure(figsize=(11, 6))
+            sns.lineplot(
+                data=acc_long,
+                x="epoch",
+                y="value",
+                hue="feature",
+                style="metric_label",
+                markers=True,
+            )
+            plt.ylim(0, 1)
+            title = f"{component.upper()} Accuracy (Overall vs Pos vs Neg)"
+            plt.title(title)
+            plt.ylabel("Accuracy")
+            plt.xlabel("Epoch")
+            plt.tight_layout()
+            plt.savefig(component_dir / "probe_accuracy_compact.png", dpi=300)
+            plt.close()
 
         # Plot 2: Signal over control (new)
         if "signal_over_control" in df.columns:
@@ -695,6 +836,169 @@ def run_probes(
             plt.savefig(component_dir / "probe_comparison.png", dpi=300)
             plt.close()
 
+        # Plot 4: Balanced accuracy
+        if "balanced_accuracy" in df.columns:
+            plt.figure(figsize=(10, 6))
+            sns.lineplot(
+                data=df,
+                x="epoch",
+                y="balanced_accuracy",
+                hue="feature",
+                style="gru",
+                markers=True,
+            )
+            title = f"{component.upper()} Balanced Accuracy over Epochs"
+            plt.title(title)
+            plt.ylabel("Balanced Accuracy")
+            plt.xlabel("Epoch")
+            plt.tight_layout()
+            plt.savefig(component_dir / "probe_balanced_accuracy.png", dpi=300)
+            plt.close()
+
+        # Plot 5: Balanced signal over control
+        if "balanced_signal_over_control" in df.columns:
+            plt.figure(figsize=(10, 6))
+            sns.lineplot(
+                data=df,
+                x="epoch",
+                y="balanced_signal_over_control",
+                hue="feature",
+                style="gru",
+                markers=True,
+            )
+            plt.axhline(y=0, color='gray', linestyle='--', linewidth=1, alpha=0.5)
+            title = f"{component.upper()} Balanced Signal Over Control"
+            plt.title(title)
+            plt.ylabel("Balanced Acc - Control Balanced Acc")
+            plt.xlabel("Epoch")
+            plt.tight_layout()
+            plt.savefig(component_dir / "probe_balanced_signal_over_control.png", dpi=300)
+            plt.close()
+
+        # Plot 6: Confusion matrices at final epoch (aggregated across models)
+        final_epoch = int(df["epoch"].max()) if not df.empty else None
+        if final_epoch is not None:
+            features_sorted = sorted(df["feature"].unique().tolist())
+            n = len(features_sorted)
+            if n > 0:
+                fig, axes = plt.subplots(1, n, figsize=(5*n, 4))
+                if n == 1:
+                    axes = [axes]
+                for ax, feat in zip(axes, features_sorted):
+                    counts = confusion_counts.get((component, feat, final_epoch))
+                    if counts is None:
+                        ax.axis('off')
+                        ax.set_title(f"{feat}\n(no data)")
+                        continue
+                    tn = counts.get("tn", 0)
+                    fp = counts.get("fp", 0)
+                    fn = counts.get("fn", 0)
+                    tp = counts.get("tp", 0)
+                    mat = np.array([[tn, fp], [fn, tp]], dtype=float)
+                    total = mat.sum()
+                    # Avoid division by zero
+                    pct = mat / total if total > 0 else mat
+                    # Annotate with count and percent
+                    annot = np.empty_like(mat).astype(object)
+                    for i in range(2):
+                        for j in range(2):
+                            annot[i, j] = f"{int(mat[i, j])}\n{(pct[i, j]*100):.1f}%"
+                    sns.heatmap(mat, annot=annot, fmt="", cmap="Blues", cbar=False, ax=ax, vmin=0)
+                    ax.set_title(f"{feat} @ epoch {final_epoch}")
+                    ax.set_xlabel("Predicted")
+                    ax.set_ylabel("True")
+                    ax.set_xticks([0.5, 1.5], labels=["0", "1"])
+                    ax.set_yticks([0.5, 1.5], labels=["0", "1"])
+                plt.tight_layout()
+                out_path = component_dir / f"probe_confusion_matrices_epoch_{final_epoch:03d}.png"
+                plt.savefig(out_path, dpi=300)
+                plt.close()
+
+            # Lean summary figure: bars (overall/pos/neg) + confusion matrices per feature
+            if n > 0:
+                fig, axes = plt.subplots(2, n, figsize=(4.0*n, 6.0))
+                if n == 1:
+                    axes = np.array(axes).reshape(2, 1)
+                for col, feat in enumerate(features_sorted):
+                    sub = df[(df["epoch"] == final_epoch) & (df["feature"] == feat)]
+                    overall = float(sub["accuracy"].mean()) if not sub.empty else float('nan')
+                    posacc = float(sub["pos_accuracy"].mean()) if "pos_accuracy" in sub and not sub.empty else float('nan')
+                    negacc = float(sub["neg_accuracy"].mean()) if "neg_accuracy" in sub and not sub.empty else float('nan')
+                    bar_ax = axes[0, col]
+                    vals = [overall, posacc, negacc]
+                    labels = ["overall", "+", "−"]
+                    # Avoid seaborn FutureWarning (palette without hue). Use explicit colors with Matplotlib.
+                    colors = sns.color_palette("Set2", n_colors=len(labels))
+                    bar_ax.bar(labels, vals, color=colors)
+                    bar_ax.set_ylim(0, 1)
+                    bar_ax.set_title(f"{feat}")
+                    if col == 0:
+                        bar_ax.set_ylabel(f"Accuracy @ epoch {final_epoch}")
+                    else:
+                        bar_ax.set_ylabel("")
+                    for p in bar_ax.patches:
+                        height = p.get_height()
+                        bar_ax.annotate(f"{height:.2f}", (p.get_x()+p.get_width()/2, height), ha='center', va='bottom', fontsize=8)
+
+                    cm_ax = axes[1, col]
+                    counts = confusion_counts.get((component, feat, final_epoch))
+                    if counts is None:
+                        cm_ax.axis('off')
+                        cm_ax.set_title("no data")
+                    else:
+                        tn = counts.get("tn", 0)
+                        fp = counts.get("fp", 0)
+                        fn = counts.get("fn", 0)
+                        tp = counts.get("tp", 0)
+                        mat = np.array([[tn, fp], [fn, tp]], dtype=float)
+                        total = mat.sum()
+                        pct = mat / total if total > 0 else mat
+                        annot = np.empty_like(mat).astype(object)
+                        for i in range(2):
+                            for j in range(2):
+                                annot[i, j] = f"{int(mat[i, j])}\n{(pct[i, j]*100):.1f}%"
+                        sns.heatmap(mat, annot=annot, fmt="", cmap="Blues", cbar=False, ax=cm_ax, vmin=0)
+                        cm_ax.set_xlabel("Predicted")
+                        if col == 0:
+                            cm_ax.set_ylabel("True")
+                        cm_ax.set_xticks([0.5, 1.5], labels=["0", "1"])
+                        cm_ax.set_yticks([0.5, 1.5], labels=["0", "1"])
+                plt.tight_layout()
+                out_path2 = component_dir / f"probe_feature_summary_epoch_{final_epoch:03d}.png"
+                plt.savefig(out_path2, dpi=300)
+                plt.close()
+
+            # Score density per feature (aggregated across models) at final epoch
+            if n > 0:
+                fig, axes = plt.subplots(1, n, figsize=(4.0*n, 3.5))
+                if n == 1:
+                    axes = [axes]
+                for ax, feat in zip(axes, features_sorted):
+                    key_sf = (component, feat)
+                    scores_list = score_store.get(key_sf)
+                    labels_list = label_store.get(key_sf)
+                    if not scores_list or not labels_list:
+                        ax.axis('off')
+                        ax.set_title(f"{feat}\n(no scores)")
+                        continue
+                    scores = np.concatenate([s for s in scores_list if s.size > 0])
+                    labels_np = np.concatenate(labels_list)
+                    if scores.size == 0 or labels_np.size == 0:
+                        ax.axis('off')
+                        ax.set_title(f"{feat}\n(no scores)")
+                        continue
+                    df_scores = pd.DataFrame({"score": scores, "label": labels_np})
+                    sns.kdeplot(data=df_scores[df_scores["label"] == 0], x="score", ax=ax, label="true 0", fill=True, alpha=0.5)
+                    sns.kdeplot(data=df_scores[df_scores["label"] == 1], x="score", ax=ax, label="true 1", fill=True, alpha=0.5)
+                    ax.axvline(0.5, color='gray', linestyle='--', linewidth=1)
+                    ax.set_xlim(0, 1)
+                    ax.set_title(feat)
+                    ax.legend(fontsize=8)
+                plt.tight_layout()
+                out_path3 = component_dir / f"probe_score_density_epoch_{final_epoch:03d}.png"
+                plt.savefig(out_path3, dpi=300)
+                plt.close()
+
 
 def main() -> None:
     args = parse_args()
@@ -720,6 +1024,8 @@ def main() -> None:
     print(f"  skip-probing      = {args.skip_probing}")
     print(f"  progress-interval = {args.progress_interval}")
     print(f"  workers           = {args.workers}")
+    print(f"  class-weight      = {args.class_weight}")
+    print(f"  balance-train     = {args.balance_train}")
 
     metrics_df = load_metrics_table(analysis_dir)
 
@@ -745,6 +1051,8 @@ def main() -> None:
             rng=rng,
             progress_interval=args.progress_interval,
             workers=args.workers,
+            class_weight=args.class_weight,
+            balance_train=args.balance_train,
         )
 
     summary_path = output_dir / "metrics_summary.json"

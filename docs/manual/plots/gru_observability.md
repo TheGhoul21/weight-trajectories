@@ -43,7 +43,7 @@ Loads extracted data and generates:
 1. **Gate trajectory plots** — mean update/reset over epochs for all models
 2. **Timescale heatmap** — median τ at final epoch, aggregated by architecture
 3. **PHATE embeddings** — 2D projection of hidden states colored by features
-4. **Logistic regression probes with control tasks** — train classifiers on hidden states to predict board features, with permuted-label controls to validate signal significance
+4. **Logistic regression probes with control tasks** — train classifiers on hidden states to predict board features, with permuted-label controls to validate signal significance; metrics include accuracy, F1, balanced accuracy, ROC-AUC, Average Precision, and signal-over-control variants.
 
 ## Outputs
 
@@ -54,7 +54,10 @@ Loads extracted data and generates:
 - **probe_accuracy.png** – logistic-probe accuracy over epochs; hue differentiates features, line style differentiates GRU size.
 - **probe_signal_over_control.png** – difference between real and control task accuracy; positive values indicate genuine signal above chance.
 - **probe_comparison.png** – side-by-side comparison of real probe accuracy (left) vs control task accuracy with permuted labels (right).
+- **probe_balanced_accuracy.png** – balanced (macro-averaged) accuracy over epochs; robust to heavy class imbalance (e.g., rare immediate wins).
+- **probe_balanced_signal_over_control.png** – balanced accuracy minus control balanced accuracy; highlights genuine signal under skew.
 - **probe_results.csv** – long-form table `[model, epoch, feature, component, accuracy, f1, control_accuracy, signal_over_control, channels, gru, kernel]`; GRU results write to the output directory (or `gru/` when multiple components are requested), while CNN-specific probes land under `cnn/`.
+   - Additional columns: `balanced_accuracy`, `roc_auc`, `average_precision`, `majority_baseline`, `adjusted_accuracy`, `control_balanced_accuracy`, `control_roc_auc`, `control_average_precision`, `balanced_signal_over_control`.
 
 ## Interpretation guide
 
@@ -205,9 +208,8 @@ C128     5.8     7.6     10.5
 - Line style: GRU size (solid/dashed/dotted for 32/64/128)
 
 **Baseline performance**:
-- **Binary features**: Random chance = 0.5
-- **Accuracy > 0.5**: Feature is encoded above chance
-- **Accuracy ≈ 0.5**: Feature not linearly decodable (may still be nonlinearly encoded)
+- Binary features: Random chance = 0.5, but heavy class imbalance can make naive accuracy misleading (e.g., always predicting 0 for `immediate_win_*` can yield very high accuracy because wins are rare).
+- Prefer balanced metrics under skew: check `balanced_accuracy`, `average_precision` (PR-AUC), and `signal_over_control`.
 
 **Reading accuracy levels**:
 
@@ -235,6 +237,14 @@ piece_diff: 0.53 at epoch 100
 ```
 - Interpretation: Barely encoded linearly (may be nonlinear or unused)
 - Expected for: Features irrelevant to task (in Connect Four, piece count matters less than position)
+
+Note on class imbalance (important for `immediate_win_*`):
+- Wins at the next move are rare for most positions; the negative class dominates.
+- A classifier that always predicts 0 can achieve deceptively high accuracy. Use:
+   - `balanced_accuracy` to weigh classes equally,
+   - `average_precision` to evaluate the positive class under skew,
+   - `signal_over_control` and `balanced_signal_over_control` to discount spurious majority baselines.
+   - Training uses class_weight='balanced' by default; you can also under-sample with `--balance-train`.
 
 **Common patterns**:
 
@@ -539,6 +549,8 @@ Pass `--probe-components cnn` to train probes directly on the CNN feature vector
 - `--palette`: Seaborn color palette for multi-model plots [default: Set2]
 - `--skip-embedding`: Skip PHATE plots (faster iteration)
 - `--skip-probing`: Skip logistic regression probes
+- `--class-weight`: Class weighting for probes (`none` or `balanced`, default: `balanced`)
+- `--balance-train`: Under-sample the majority class in the training split to 1:1 (optional)
 
 ---
 
