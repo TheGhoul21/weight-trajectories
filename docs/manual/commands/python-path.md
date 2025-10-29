@@ -1,6 +1,10 @@
 # wt python-path
 
-Print the Python interpreter path that wt.sh will use for subcommands.
+Overview
+- Prints the Python interpreter path used by `wt.sh` (handy for troubleshooting environments).
+
+How to Run
+- `./wt.sh python-path`
 
 Usage
 - `./wt.sh python-path`

@@ -1,10 +1,14 @@
-# Weight Trajectory Visualization
+# Weight Trajectory Analysis with PHATE
 
-This note summarizes the intent and internals of `src/visualize_trajectories.py`, the script that turns training checkpoints into PHATE embeddings and diagnostic plots.
+## Overview
 
-## Why PHATE
+Training a neural network traces a path through high-dimensional parameter space. Understanding this trajectory reveals learning dynamics: whether training proceeds smoothly or exhibits phase transitions, whether different architectural components co-evolve or learn at different rates, and how weight changes relate to performance improvements. PHATE (Potential of Heat-diffusion for Affinity-based Transition Embedding) provides a method for visualizing these trajectories while preserving their temporal structure.
 
-PHATE captures progressive changes in high-dimensional data and tends to produce smoother trajectories than PCA or t-SNE when sampling is sparse (a handful of checkpoints). The script adapts the `knn` parameter automatically so that very small checkpoint collections (for example, only five epochs) still yield stable embeddings without overfitting.
+## Why PHATE for Training Trajectories
+
+Parameter evolution during training has specific characteristics that influence embedding choice. Checkpoints are temporally ordered and typically few in number (20-50 samples). Changes should be continuous—adjacent epochs should have similar weights—making trajectory preservation essential. Regime transitions (phase changes in learning dynamics) should be visually apparent.
+
+PHATE addresses these requirements through diffusion-based distance computation. Unlike PCA (purely linear), PHATE captures nonlinear structure. Unlike t-SNE (which can tear trajectories apart to optimize local clustering), PHATE explicitly preserves both local neighborhoods and global manifold structure. The diffusion process acts as a denoising operator, revealing underlying trends despite noisy per-epoch fluctuations.
 
 ## Data Flow
 
@@ -21,8 +25,8 @@ PHATE captures progressive changes in high-dimensional data and tends to produce
    - Each supplied board tensor is pushed through the model; the hidden state returned by the GRU serves as the latent representation for PHATE.
 
 4. **Embedding with PHATE**
-   - For every weight or representation matrix, the script instantiates `phate.PHATE(n_components=2, knn=k, t=10)`.
-   - `knn` is capped by the sample count (`max(2, min(max_knn, n_samples - 1))`) to keep the kernel well-posed even in tiny datasets.
+   - For each matrix, fit `phate.PHATE(n_components=2, knn=k, t=10)`.
+   - Choose `knn` consistent with sample count to maintain a well‑posed affinity graph.
 
 5. **Plotting**
    - Weight trajectories are displayed with a grey backbone line, coloured points for epoch ordering, and start/end markers.
@@ -43,12 +47,10 @@ python -m src.visualize_trajectories \
 
 ## Practical Notes
 
-- The PHATE fit scales at roughly `O(n_samples^2)`; expect a few seconds for 50+ checkpoints.
-- GPU acceleration is not required; the script pins everything to CPU unless CUDA is available.
-- If you add BatchNorm weight visualizations later, make sure to filter them separately so they do not overwhelm the embedding with scale differences.
-- When flattened weights exceed roughly five thousand dimensions, the CLI now auto-runs a PCA down to at most 32 components (and never more than the checkpoint count minus one) before PHATE. Override this with `--phate-n-pca <k>` if you want a different compression budget—the request will be clipped to the valid range.
-- Advanced PHATE knobs are exposed: `--phate-knn` widens or shrinks the local graph, `--phate-t` extends diffusion for clearer global structure, and `--phate-decay` adjusts how quickly affinities fall off. Combine them with `--ablation-center normalize` or `anchor` to keep multi-run plots legible.
-- Automate whole sweeps with `scripts/run_visualization_suite.py`, which reads a JSON config of CLI argument sets, executes each visualization, and writes a markdown recap with embedded figures.
+- PHATE fit scales roughly as O(n_samples^2) in the number of checkpoints; tens of checkpoints are practical.
+- CPU is sufficient; CUDA is not required.
+- When weight vectors are very wide, apply a compact PCA (≤ min(32, n_samples−1)) before PHATE to reduce variance dominated by scale.
+- Expose `knn`, `t`, and kernel decay to tune local/global structure and readability across runs.
 
 ## Ablation Comparison
 
@@ -62,12 +64,8 @@ python -m src.visualize_trajectories \
                             checkpoints/k3_c256_gru8_20251023_055910
 ```
 
-- `ablation-cnn` compares the convolutional kernels; `ablation-gru` targets the recurrent weights.
-- Each trajectory retains its own start/end markers so progression is easy to follow, and the legend lists the directory plus parsed hyperparameters.
-- The shared embedding makes it clear when larger models take qualitatively different routes through parameter space, even if they use more weights than the smaller variants.
-- Append `--ablation-animate` to produce a GIF alongside the static PNG (requires Pillow for GIF export).
-- If `training_history.json` exists per run, the combined plot reuses the orange diamond/red star convention to mark the epochs with minimal and final validation loss for each configuration.
-- When one run dominates the scale, pass `--ablation-center anchor` (or `normalize`) to align every trajectory at its starting point (optionally scale by path length) so smaller drifts remain visible.
+- `ablation-cnn` compares convolutional kernels; `ablation-gru` targets recurrent weights.
+- A shared embedding across runs clarifies qualitatively different routes through parameter space even with differing dimensionalities (after padding/alignment).
 
 ### Checkpoint Filtering
 
@@ -86,9 +84,7 @@ python -m src.visualize_trajectories \
    --output-dir visualizations/activations_demo
 ```
 
-- Results land in `<output-dir>/activations/activation_XXX.png`, each overlaying the Grad-CAM intensity on top of the board state.
-- `--activation-target value` switches the explanation target to the scalar value head; use `--activation-move <col>` to focus on a specific policy output rather than the arg-max.
-- Random boards are sampled by default; swap in curated states by passing your own list to `visualize_cnn_activations` (for example by loading tensors from disk before calling the helper).
+- Outputs overlay Grad‑CAM intensity on top of board states to indicate spatial saliency for policy/value predictions.
 
 ## Joint CNN/GRU Trajectory
 
@@ -102,11 +98,26 @@ python -m src.visualize_trajectories \
    --output-dir visualizations/joint_k3_c16_gru8
 ```
 
-- `--joint-center` mirrors the ablation centering options so you can anchor the curves at epoch zero or renormalize their path length.
-- The legend indicates how to read the shared val-loss markers: filled diamonds/stars correspond to the CNN, outlined versions to the GRU evaluated at the same epoch.
+- Centering options help align curves for readability (anchor at epoch zero; optional path‑length normalization).
 
-## Extending
+## Extensions and Alternatives
 
-- Swap in handcrafted board trajectories by replacing `generate_random_boards` or by loading saved tensors from the `data/` directory.
-- Add animation by reusing `matplotlib.animation.FuncAnimation` on the 2D embeddings—the scaffolding (`FuncAnimation` import) is already in place.
-- Experiment with different dimensionality reducers (`UMAP`, `TSNE`) by introducing new helper methods alongside the PHATE ones and wiring them into the CLI through an additional flag.
+**Custom trajectory sources**: Replace `generate_random_boards` with handcrafted board sequences or load saved tensors from `data/` directory to analyze specific game scenarios.
+
+**Animation**: `matplotlib.animation.FuncAnimation` can animate the 2D trajectory, showing weight evolution as a movie. The import is already available in the visualization script.
+
+**Alternative embedding methods**: While PHATE is the default for trajectory preservation, UMAP (faster, good global structure) and t-SNE (emphasizes local clustering) can serve as sensitivity checks. Comparing embeddings across methods validates that observed structure is not an artifact of the projection algorithm.
+
+---
+
+## Documentation Cross-References
+
+**Mathematical foundations**: [Theoretical Foundations](scientific/theoretical_foundations#4-manifold-learning-and-trajectory-embedding) covers the manifold hypothesis, PHATE algorithm details, diffusion geometry, and comparative analysis with PCA, t-SNE, and UMAP.
+
+**Learning dynamics connection**: [Theoretical Foundations](scientific/theoretical_foundations#6-learning-dynamics-how-attractors-emerge) explains how weight trajectories in parameter space correspond to evolution of attractor landscapes in hidden state space.
+
+**Practical applications**: [Case Studies](scientific/case_studies) presents Maheswaranathan's line attractor analysis using PCA (case study #2) and Yang's compositional PCA for multi-task RNNs (case study #5), demonstrating trajectory analysis in different contexts.
+
+**Implementation status**: [GRU Observability: Intuition, Methods, and Recommendations](scientific/gru_observability_literature) summarizes current capabilities and planned extensions.
+
+**Methodological references**: [References](scientific/references) section "Manifold Learning & Trajectory Embedding" provides citations for PHATE (Moon et al. 2019), T-PHATE (Rübel et al. 2023), UMAP (McInnes et al. 2018), and related methods.

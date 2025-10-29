@@ -1,7 +1,11 @@
-# CNN activation maps (Grad-CAM)
+# CNN Activation Maps (Grad-CAM)
 
-Produced by: `./wt.sh visualize --viz-type activations --checkpoint-dir <run>`
-Backed by: `src/visualize_trajectories.py`
+Overview
+- Highlights which board regions the CNN focuses on for policy/value predictions using Grad-CAM.
+- Answers where spatial evidence concentrates and how that shifts across checkpoints.
+
+How to Generate
+- `./wt.sh visualize --viz-type activations --checkpoint-dir <run>` (uses `src/visualize_trajectories.py`)
 
 ## Purpose
 

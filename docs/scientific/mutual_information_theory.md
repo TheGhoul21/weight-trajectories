@@ -1,84 +1,75 @@
-# Per-Dimension Mutual Information Analysis
+# Mutual Information Analysis
 
-## Overview
+Overview
+- Quantifies statistical dependence between hidden states and game features without assuming linearity. Complements probes by detecting nonlinear and distributed codes.
+- Use aggregate MI to gauge overall encoding, and per‑dimension MI to find specialized neurons.
 
-The mutual information (MI) analysis has been extended to analyze **individual GRU hidden dimensions** rather than just the overall hidden state vector. This reveals **which specific neurons** encode which game features and **how** they encode them.
+How to Run
+- CLI: `./wt.sh observability mi` (runs `scripts/compute_hidden_mutual_info.py` after analyze).
+- Libraries: scikit‑learn (`sklearn.feature_selection.mutual_info_classif`, `mutual_info_regression`); see [Methods](../reference/methods).
 
-## What Gets Computed
+## Conceptual Foundation
 
-### 1. Mean MI (Existing)
-- **What**: Average MI across all hidden dimensions
-- **Formula**: `mean(MI(h_i, feature))` for i=1..hidden_size
-- **Output**: Single scalar per feature
-- **Use**: Overall information encoding capacity
+Mutual information quantifies statistical dependence between variables without assuming linear relationships. Applied to GRU hidden states, MI analysis reveals what information the network encodes and how it distributes that information across neurons. Unlike linear probes, which test only linear accessibility, MI detects any form of dependency—including nonlinear transformations and distributed codes.
 
-### 2. Per-Dimension MI (NEW)
-- **What**: MI for each individual hidden dimension
-- **Formula**: `MI(h_i, feature)` for each dimension i
-- **Output**: Array of shape `(hidden_size,)` per feature
-- **Use**: Identify specialized neurons
+For a hidden dimension h_i and target feature y, MI(h_i; y) measures how much knowing h_i reduces uncertainty about y. Measured in bits (log base 2) or nats (natural log), MI equals zero for independent variables and increases with stronger dependence. Computing MI at both aggregate and per-dimension levels distinguishes specialized neurons (single dimensions with high MI) from distributed encoding (information spread across many dimensions).
 
-### 3. High-MI Dimension Values (NEW)
-- **What**: Actual values in the most informative dimension
-- **Formula**: For `best_dim = argmax(MI(h_i, feature))`, plot `h[best_dim]` vs `feature`
-- **Output**: Scatter/distribution showing encoding relationship
-- **Use**: Understand **how** the dimension encodes the feature
+## Quantities Computed
 
----
+### 1. Mean MI (aggregate)
+- What: Average MI across hidden dimensions for a given feature.
+- Definition: mean_i MI(h_i, y) where h_i is dimension i and y is the feature.
+- Purpose: Summarize overall encoding capacity without assuming linearity.
 
-## New Visualizations
+### 2. Per‑dimension MI
+- What: MI(h_i, y) for each hidden dimension i.
+- Purpose: Identify specialized units and redundancy across units.
 
-### `mi_per_dimension_<model>.png`
-
-**Type**: Heatmap (features × dimensions)
-
-**Layout**:
-- Y-axis: 12 board features (immediate_win_current, three_in_row_opponent, etc.)
-- X-axis: Hidden dimension indices (0..31 for GRU32, 0..63 for GRU64, etc.)
-- Color: Mutual information magnitude (darker = higher MI)
-- **★ Symbol**: Marks the dimension with highest MI for each feature
-
-**Interpretation**:
-1. **Specialization**: Bright spots show dimensions specialized for specific features
-   - Example: "Dimension 17 has very high MI with `immediate_win_current`"
-
-2. **Clustering**: Adjacent bright dimensions suggest feature co-encoding
-   - Example: "Dimensions 23-27 all encode threat-related features"
-
-3. **Redundancy**: Multiple bright spots per feature indicate distributed encoding
-   - Example: "Both dim 5 and dim 78 encode `current_player`"
-
-4. **Sparsity**: Mostly dark rows suggest features poorly encoded in hidden state
-   - Example: "`center_control` has low MI across all dimensions"
-
-**Expected Patterns**:
-- **Trained models**: Clear specialization (sparse bright spots per feature)
-- **Early epochs**: Diffuse/uniform MI (no specialization yet)
-- **Large GRUs**: More dimensions with medium MI (distributed encoding)
-- **Small GRUs**: Few dimensions with high MI (forced specialization)
+### 3. Value distributions for high‑MI units
+- What: For best_dim = argmax_i MI(h_i, y), plot h_best_dim versus y.
+- Purpose: Characterize encoding (bimodal thresholds, linear trends, multi‑modal patterns).
 
 ---
 
-### `mi_dimension_values_<model>.png`
+## Visualization Outputs
 
-**Type**: Grid of scatter/distribution plots (12 subplots, one per feature)
+### Per-Dimension MI Heatmap
 
-**Layout**:
-- Each subplot: One feature
-- X-axis: Feature values
-- Y-axis: Hidden dimension values (the dimension with highest MI for that feature)
-- Title: Feature name + best dimension index + MI score
+**Format**: Heatmap showing MI(h_i, y) for all hidden dimensions i and board features y.
 
-**Plot Types**:
-1. **Binary features** (e.g., `immediate_win_current`):
-   - Violin plot or box plot
-   - Shows distribution of dimension values for each class (0 vs 1)
-   - Example: When immediate win=1, dimension 17 clusters around +2.5; when 0, clusters around -1.2
+**Axes**:
+- Vertical: 12 board features (immediate_win_current, three_in_row_opponent, etc.)
+- Horizontal: Hidden dimension indices (varies by GRU size: 32, 64, or 128)
+- Color intensity: MI magnitude (darker indicates higher dependence)
 
-2. **Continuous features** (e.g., `move_index`, `piece_diff`):
-   - Scatter plot
-   - Shows relationship between feature value and dimension activation
-   - Example: Dimension 42 linearly increases with `move_index` (game phase detector)
+**Interpretation patterns**:
+
+**Specialization** appears as isolated high-MI cells—single dimensions strongly encoding specific features. Example: dimension 17 shows MI=0.84 with immediate_win_current while other dimensions show MI<0.2.
+
+**Co-encoding** manifests as adjacent high-MI dimensions for related features. Example: dimensions 23-25 all show elevated MI with both current_player and immediate_win_current, suggesting a shared subspace for turn-dependent threat detection.
+
+**Distributed encoding** appears as multiple scattered high-MI dimensions for one feature. Example: center_control shows moderate MI (0.3-0.5) across dimensions 8, 15, 29, and 41—information spread rather than concentrated.
+
+**Weak representation** shows as uniformly low MI across all dimensions for a feature, indicating the network has not learned to encode that variable.
+
+**Training dynamics**: Early checkpoints typically show diffuse, weak MI values. As training progresses, MI patterns sharpen—trained models exhibit clearer specialization. Architectural effects also emerge: larger GRUs tend toward distributed encoding while smaller GRUs show sharper specialization due to capacity constraints.
+
+---
+
+### Dimension Value Distributions
+
+**Format**: Grid of plots showing how the highest-MI dimension for each feature relates to that feature's values.
+
+**Layout**: One subplot per board feature. Each shows:
+- Horizontal axis: Feature values (binary 0/1 or continuous range)
+- Vertical axis: Activation of the dimension with highest MI for this feature
+- Title: Feature name, dimension index, and MI score
+
+**Plot types by feature**:
+
+Binary features (immediate_win_current, current_player) use violin or box plots to show distribution separation between categories. Well-encoded binary features show distinct distributions with minimal overlap.
+
+Continuous features (move_index, piece_count_diff) use scatter plots to reveal encoding structure. Strong linear trends indicate proportional encoding. Nonlinear patterns (clusters, thresholds, multi-modal distributions) indicate more complex transformations.
 
 **Interpretation Examples**:
 
@@ -119,68 +110,29 @@ Plot: Multiple clusters in violin plot
 ## Scientific Insights
 
 ### 1. Neuron Specialization
-**Question**: Do GRU units specialize for specific game concepts?
-
-**Answer from Plots**:
-- **Yes**: Sparse heatmap with clear ★ symbols → dedicated feature detectors
-- **No**: Uniform/diffuse heatmap → distributed encoding
-
-**Connect Four Example**:
-- Expected: Specialized neurons for immediate wins (critical tactical feature)
-- Expected: Diffuse encoding for piece counts (less critical)
+Neuron specialization
+- Hypothesis: GRU units specialize for specific game concepts when capacity is sufficient and training progresses.
+- Evidence: Sparse high‑MI patterns for critical features (e.g., immediate wins) versus diffuse MI for less decisive variables (e.g., piece counts).
 
 ---
 
 ### 2. Encoding Mechanisms
-**Question**: How does the GRU represent binary vs continuous features?
-
-**Answer from Value Plots**:
-- **Binary features**: Bimodal distributions (two peaks)
-  - Clean separation → feature is well-learned
-  - Overlap → ambiguous encoding
-
-- **Continuous features**: Linear/monotonic trends
-  - High correlation → simple encoding
-  - Nonlinear → complex transformation
-
-**Example**:
-```python
-# If dimension 17 encodes immediate_win_current as:
-#   h[17] = +3.2 when win=1
-#   h[17] = -2.1 when win=0
-# → Simple threshold detector (like a ReLU on a linear feature)
-```
+Encoding mechanisms
+- Binary variables often appear as bimodal hidden activations (threshold‑like separation).
+- Continuous variables may show linear/monotonic trends in high‑MI units; nonlinear patterns indicate more complex transformations.
 
 ---
 
 ### 3. Capacity Analysis
-**Question**: Do larger GRUs waste capacity or use it effectively?
-
-**Answer from Dimension Count**:
-- Count dimensions with MI > threshold (e.g., 0.1)
-- GRU32: 8 high-MI dimensions
-- GRU64: 14 high-MI dimensions
-- GRU128: 19 high-MI dimensions
-
-**Interpretation**:
-- **Linear scaling**: Larger models use extra capacity for redundancy/robustness
-- **Sublinear scaling**: Diminishing returns (GRU32 might be sufficient)
-- **Superlinear**: Larger models encode features current small models miss
+Capacity analysis
+- Count dimensions with MI above a threshold to estimate effective capacity.
+- Linear increase suggests useful redundancy; sublinear suggests diminishing returns; superlinear suggests qualitatively new encodings in larger models.
 
 ---
 
-### 4. Evolution During Training
-**Future Extension** (would require computing per-dimension MI at multiple epochs):
-
-Track which dimensions "specialize" first:
-```
-Epoch 10: All dimensions have uniform low MI (0.1-0.2)
-Epoch 30: Dimension 17 MI spikes to 0.7 for immediate_win_current
-Epoch 60: Dimensions 23-27 specialize for three_in_row features
-Epoch 100: Stable specialization pattern
-```
-
-This reveals the **temporal dynamics of representation learning**.
+Training evolution
+- Compute per‑dimension MI across checkpoints to track the onset and stabilization of specialization.
+- Reveals temporal dynamics of representation learning and aligns with performance changes.
 
 ---
 
@@ -194,10 +146,11 @@ python scripts/compute_hidden_mutual_info.py \
   --features immediate_win_current three_in_row_current move_index
 ```
 
-**Outputs**:
-- `mi_results.csv` - Overall MI scores
-- `mi_per_dimension_k3_c64_gru32.png` - Which dimensions encode what
-- `mi_dimension_values_k3_c64_gru32.png` - How dimensions encode features
+Outputs:
+- `mi_results.csv` – aggregated MI scores
+- `mi_per_dimension_*.png` – dimension‑wise MI heatmaps
+- `mi_dimension_values_*.png` – encoding patterns for highest‑MI units
+
 - (Repeated for each model architecture)
 
 ---
@@ -303,8 +256,20 @@ python scripts/compute_hidden_mutual_info.py \
 - Enables **capacity analysis** (how many dimensions are "active"?)
 - Supports **debugging** (which features are poorly learned?)
 
-**Recommended workflow**:
-1. Run analysis on final epoch
-2. Check per-dimension heatmap for specialization
-3. Check value plots for encoding quality
-4. Identify dimensions for further investigation (saliency, ablation, etc.)
+**Analysis workflow**:
+1. Examine per-dimension heatmap to identify specialized dimensions and encoding patterns
+2. Review value distribution plots to understand encoding mechanisms (linear, threshold, multi-modal)
+3. Cross-reference with probe accuracy to validate MI findings
+4. For high-MI dimensions, consider ablation studies or gradient analysis to test causal importance
+
+---
+
+## Integration with Analysis Framework
+
+**Theoretical background**: [Theoretical Foundations](scientific/theoretical_foundations#3-information-theory-for-interpretability) develops the mathematical foundation for MI estimation, including connections to entropy, conditional probability, and information-theoretic bounds.
+
+**Comparative methods**: [Case Studies](scientific/case_studies) presents AlphaZero concept probing (case study #3) and Karpathy's interpretable neuron discovery (case study #6), showing how MI analysis complements and extends manual inspection approaches.
+
+**Research frontiers**: [GRU Observability: Intuition, Methods, and Recommendations](scientific/gru_observability_literature) identifies MI temporal tracking as a high‑impact addition, enabling analysis of how representations organize during training.
+
+**Complete bibliography**: [References](scientific/references) section "Information Theory & Mutual Information" provides citations for MI estimation methods, applications to neural network interpretability, and theoretical foundations.

@@ -1,6 +1,13 @@
-# Factorial heatmaps
+# Factorial Heatmaps
 
-Produced by: `./wt.sh factorial` → `scripts/visualize_unified.py`
+Overview
+- Summarizes 9 key metrics across the full 3×3 architecture sweep to reveal main and interaction effects.
+- Answers how CNN capacity and GRU capacity influence performance, stability, and representation quality.
+
+How to Generate
+- `./wt.sh factorial` (uses `scripts/visualize_unified.py`)
+ 
+See also: [Methods Reference](../../reference/methods) for metric definitions and related libraries.
 
 ## Purpose
 
@@ -336,7 +343,7 @@ checkpoint_dir/
 
 ## Cross-references
 
-- **Weight metrics details**: [checkpoint_metrics_csv.md](./checkpoint_metrics_csv.md)
-- **Representation SVD**: [checkpoint_metrics_csv.md#4-representation-svd-analysis-optional](./checkpoint_metrics_csv.md#4-representation-svd-analysis-optional)
-- **Training command**: [../commands/train-all.md](../commands/train-all.md)
-- **Metrics command**: [../commands/metrics.md](../commands/metrics.md)
+- **Weight metrics details**: [checkpoint_metrics_csv](manual/plots/checkpoint_metrics_csv)
+- **Representation SVD**: [checkpoint_metrics_csv#4-representation-svd-analysis-optional](manual/plots/checkpoint_metrics_csv#4-representation-svd-analysis-optional)
+- **Training command**: [train-all](manual/commands/train-all)
+- **Metrics command**: [metrics](manual/commands/metrics)

@@ -1,6 +1,10 @@
 # wt onnx
 
-Export the ResNet+GRU architecture to ONNX for inspection or external tools.
+Overview
+- Exports the ResNet+GRU architecture to ONNX for inspection or use in external tools.
+
+How to Run
+- `./wt.sh onnx [args]` (invokes `scripts/export_model_onnx.py`)
 
 Backed by: `scripts/export_model_onnx.py`
 

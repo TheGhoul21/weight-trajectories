@@ -1,6 +1,10 @@
 # wt report
 
-Generate the unified markdown analysis report summarizing metrics, histories, and key figures.
+Overview
+- Generates a unified markdown analysis report summarizing metrics, histories, and key figures.
+
+How to Run
+- `./wt.sh report [args]` (invokes `scripts/generate_report.py`)
 
 Backed by: `scripts/generate_report.py`
 

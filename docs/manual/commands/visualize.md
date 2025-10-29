@@ -1,6 +1,11 @@
 # wt visualize
 
-Run the unified visualization suite or launch the interactive wizard.
+Overview
+- Runs the unified visualization suite (single run or batch via config) or launches an interactive wizard.
+
+How to Run
+- `./wt.sh visualize wizard` (interactive)
+- `./wt.sh visualize --config <json>` (batch)
 
 - `./wt.sh visualize wizard` → interactive shell wizard for end-to-end analysis
 - `./wt.sh visualize [args]` → non-interactive batch via `scripts/run_visualization_suite.py`
@@ -24,4 +29,4 @@ Related CLI (src.visualize_trajectories)
   - PHATE tuning (phate-n-pca, phate-knn, phate-t, phate-decay)
   - Grad-CAM activations controls
 
-Artifacts documented at: [Unified visualization suite](../plots/visualize_unified.md) and [CNN activation maps](../plots/activations.md).
+Artifacts documented at: [Unified visualization suite](manual/plots/visualize_unified) and [CNN activation maps](manual/plots/activations).

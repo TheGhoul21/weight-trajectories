@@ -1,195 +1,293 @@
-# Weight Trajectories Documentation
+# Weight Trajectories: Connect Four Neural Network Analysis
+Version 1.0
 
-Documentation for the weight-trajectories project: analyzing neural network training dynamics and GRU interpretability in Connect Four agents.
+> Comprehensive analysis framework for training and interpreting ResNet+GRU models on Connect Four, with focus on dynamical systems analysis of recurrent networks.
 
----
+## Documentation Overview
 
-## 🚀 Quick Start
+Complete coverage of the **wt.sh** toolchain for:
+- **Training** ResNet+GRU models on sequential Connect Four games
+- **Analyzing** GRU dynamics using dynamical systems theory
+- **Visualizing** weight trajectories and representation evolution
+- **Interpreting** what the network learns through information theory and probing
 
-**New users**: Start with the [User Manual](./manual/README.md) for complete command reference and workflows.
+## Documentation Sections
 
-**Running GRU analysis**: See the [GRU Interpretability Workflow](./manual/workflows/gru_interpretability.md)
+### [User Manual](manual/)
+Complete practical guide to all commands, plots, and workflows
+- [Commands Reference](manual/commands/) - All `./wt.sh` commands documented
+- [Plot Interpretation](manual/plots/) - How to read every visualization
+- [Workflows](manual/workflows/) - End-to-end analysis pipelines
 
----
+### [Scientific Background](scientific/)
+Theoretical foundations and literature review
+- [Theoretical Foundations](scientific/theoretical_foundations) - Dynamical systems, information theory, neuroscience
+- [Case Studies](scientific/case_studies) - Examples from RNN interpretability research
+- [References](scientific/references) - Comprehensive bibliography (50+ papers)
 
-## 📚 Documentation Structure
-
-### [User Manual](./manual/) (`./manual/`)
-Complete operational guide for running experiments and generating visualizations.
-
-- **Commands**: Detailed reference for all `./wt.sh` commands
-  - [observability](./manual/commands/observability.md) - GRU dynamics and interpretability
-  - [train](./manual/commands/train.md), [metrics](./manual/commands/metrics.md), [visualize](./manual/commands/visualize.md), etc.
-- **Plots**: How to read every CSV and figure generated
-  - [GRU mutual information](./manual/plots/gru_mutual_info.md)
-  - [GRU observability + probes](./manual/plots/gru_observability.md)
-  - [Fixed points + evolution](./manual/plots/fixed_points.md)
-- **Workflows**: End-to-end analysis pipelines
-  - [GRU interpretability pipeline](./manual/workflows/gru_interpretability.md)
-
-### [Scientific Background](./scientific/) (`./scientific/`)
-Research context, literature reviews, and theoretical foundations.
-
-- **[GRU Observability Literature Review](./scientific/gru_observability_literature.md)**
-  - Comparison with Sussillo & Barak (2013), Maheswaranathan et al. (2019), Lei et al. (2024)
-  - Gap analysis: what we implement vs state-of-the-art
-  - Priority recommendations for future work
-
-- **[Mutual Information Theory](./scientific/mutual_information_theory.md)**
-  - Per-dimension MI analysis explained
-  - Neuron specialization vs distributed encoding
-  - Connection to neuroscience interpretability literature
-
-- **[Weight Trajectory Embeddings](./scientific/weight_embeddings_theory.md)**
-  - Why PHATE for training dynamics
-  - Interpretation guide for trajectory plots
-  - Data flow and algorithmic details
-
-### [Technical Reference](./reference/) (`./reference/`)
-Architecture details and internal documentation.
-
-- **[Model Architecture Diagrams](./reference/architecture_diagrams.md)**
-  - How to generate paper-ready ResNet+GRU diagrams
-  - PlotNeuralNet and Netron setup
-
-- **[Changelog: Manual Updates](./reference/changelog/)**
-  - Internal documentation of major feature additions
+### [Technical Reference](reference/)
+Architecture and shared methods
+- [Architecture Diagrams](reference/architecture_diagrams) - How to generate model visualizations
+- [Methods Reference](reference/methods) - Algorithms and library links
 
 ---
 
-## 📖 Common Tasks
-
-### I want to...
-
-**Run the GRU interpretability pipeline**
-→ [GRU Interpretability Workflow](./manual/workflows/gru_interpretability.md)
-
-**Understand what a plot means**
-→ [Plot Explainers](./manual/plots/) (find your plot by filename)
-
-**Learn about the science behind the analysis**
-→ [Scientific Background](./scientific/)
-
-**Generate architecture diagrams for a paper**
-→ [Architecture Diagrams Guide](./reference/architecture_diagrams.md)
-
-**See what features were recently added**
-→ [Manual Update Changelog](./reference/changelog/)
-
-**Understand how mutual information analysis works**
-→ [MI Theory](./scientific/mutual_information_theory.md) + [MI Plot Guide](./manual/plots/gru_mutual_info.md)
-
-**Debug a failed analysis**
-→ [GRU Workflow Troubleshooting](./manual/workflows/gru_interpretability.md#troubleshooting)
-
-**Compare our GRU analysis with research papers**
-→ [Literature Review & Gap Analysis](./scientific/gru_observability_literature.md)
-
----
-
-## 🎓 For Researchers
-
-If you're writing a paper or want deep scientific context:
-
-1. **Start**: [GRU Observability Literature Review](./scientific/gru_observability_literature.md)
-   - See what techniques are implemented (fixed points, MI, probes, etc.)
-   - Understand priority gaps (what's missing from state-of-the-art)
-
-2. **Theory**: [Mutual Information Theory](./scientific/mutual_information_theory.md)
-   - Neuron specialization patterns
-   - Encoding mechanisms (binary vs continuous features)
-   - Expected results for Connect Four domain
-
-3. **Practice**: [GRU Interpretability Workflow](./manual/workflows/gru_interpretability.md)
-   - Run the full analysis pipeline
-   - Generate figures for paper
-   - Identify interpretable neurons
-
-4. **Interpretation**: [Plot Explainers](./manual/plots/)
-   - `gru_mutual_info.md` - Comprehensive guide with examples
-   - `gru_observability.md` - Gates, timescales, PHATE embeddings
-   - `fixed_points.md` - Attractor dynamics and evolution
-
----
-
-## 🛠️ For Engineers
-
-If you're debugging models or optimizing architectures:
-
-1. **Quick Reference**: [Command Index](./manual/README.md)
-   - All `./wt.sh` commands with options
-
-2. **Diagnostics**: [GRU Workflow](./manual/workflows/gru_interpretability.md#diagnostic-scenarios)
-   - Scenario 1: Model plays poorly despite low loss
-   - Scenario 2: Large model no better than small model
-   - Scenario 3: Preparing paper figures
-
-3. **Plot Interpretation**: [Plot Explainers](./manual/plots/)
-   - See "Diagnostic use cases" sections
-   - Architecture selection, neuron ablation, feature engineering
-
----
-
-## 📂 Directory Structure
+## Project Structure
 
 ```
-docs/
-├── README.md (this file)
-│
-├── manual/                          # User-facing operational manual
-│   ├── README.md                    # Manual index
-│   ├── commands/                    # Command reference
-│   │   ├── observability.md
-│   │   ├── train.md
-│   │   └── ...
-│   ├── plots/                       # Plot interpretation guides
-│   │   ├── gru_mutual_info.md
-│   │   ├── gru_observability.md
-│   │   └── ...
-│   └── workflows/                   # End-to-end pipelines
-│       └── gru_interpretability.md
-│
-├── scientific/                      # Research background & theory
-│   ├── gru_observability_literature.md
-│   ├── mutual_information_theory.md
-│   └── weight_embeddings_theory.md
-│
-└── reference/                       # Technical specs & internal docs
-    ├── architecture_diagrams.md
-    └── changelog/
-        └── 2025-10-28_mi_dimension_analysis.md
+weight-trajectories/
+├── dataset/
+│   └── Alpha-Zero-algorithm-for-Connect-4-game/  # External AlphaZero repo
+├── data/                                          # Generated datasets
+│   ├── connect4_10k_games.pt                     # Full dataset
+│   └── samples/                                  # Test datasets
+├── src/                                           # Source code
+│   ├── model.py                                   # ResNet+GRU architecture
+│   └── train.py                                   # Training script
+├── scripts/                                       # Utility scripts
+│   ├── generate_connect4_dataset.py              # Dataset generation
+│   └── train_all_models.sh                       # Train all configs
+├── configs/                                       # Training configurations
+│   └── train_configs.yaml
+├── checkpoints/                                   # Saved models & weights
+├── models/                                        # Final trained models
+└── README.md
 ```
 
+## Quick Start
+
+### 0. Explore the CLI
+
+All tooling now hangs off `wt.sh`. Run `./wt.sh help` for the command menu. Set `PYTHON_BIN` if you need a specific interpreter.
+
+```bash
+./wt.sh help
+```
+
+### 1. Generate Dataset
+
+**Test run** (20 games, 2 CPUs, ~20 seconds):
+```bash
+./wt.sh dataset flat --test-run
+```
+
+**Full dataset** (10,000 games, 4 CPUs, ~1.5 hours):
+```bash
+./wt.sh dataset flat \
+  --num-games 10000 \
+  --cpus 4 \
+  --simulations 200
+```
+
+### 2. Test Model Architecture
+
+```bash
+./wt.sh model
+```
+
+### 3. Train Models
+
+**Single model:**
+```bash
+./wt.sh train \
+  --data data/connect4_10k_games.pt \
+  --cnn-channels 16 64 256 \
+  --gru-hidden 32 \
+  --epochs 100 \
+  --save-every 10
+```
+
+**All three configurations:**
+```bash
+./wt.sh train-all --data data/connect4_10k_games.pt
+```
+
+## Model Architecture
+
+**Input:** (batch, 3, 6, 7) - Board state [yellow_pieces, red_pieces, turn_indicator]
+
+**ResNet Backbone:**
+- Single ResNet block with configurable kernel size (3×3 or 6×6)
+- Configurable output channels (16, 64, or 256)
+- BatchNorm + ReLU, 'same' padding (preserves 6×7 spatial structure)
+
+**GRU:**
+- Single-layer GRU with configurable hidden size (8, 32, or 128)
+- Processes flattened CNN features
+
+**Heads:**
+- **Policy Head:** Predicts move probabilities (7 columns)
+- **Value Head:** Predicts win probability [-1, 1]
+
+## Ablation Study: 18 Configurations
+
+**Parameters varied:**
+- Kernel size: 3×3, 6×6 (2 options)
+- CNN channels: 16, 64, 256 (3 options)
+- GRU hidden: 8, 32, 128 (3 options)
+- **Total: 2 × 3 × 3 = 18 models**
+
+**Parameter counts:**
+| Kernel | Channels | GRU | Parameters |
+|--------|----------|-----|------------|
+| 3×3    | 16       | 8   | 20K        |
+| 3×3    | 256      | 128 | 4.8M       |
+| 6×6    | 16       | 8   | 29K        |
+| 6×6    | 256      | 128 | 6.6M       |
+
+## Weight Tracking
+
+Weights are saved every 10 epochs by default:
+```
+checkpoints/k3_c64_gru32_20251022_033045/
+├── weights_epoch_0010.pt
+├── weights_epoch_0020.pt
+├── ...
+├── weights_epoch_0100.pt
+├── best_model.pt
+└── training_history.json
+```
+
+Each checkpoint contains the full model state dict for trajectory analysis.
+
+**Training all 18 ablations:**
+```bash
+./scripts/train_all_18_ablations.sh
+```
+
+This will create 18 separate checkpoint directories, one for each configuration.
+
+## Dataset Format
+
+PyTorch `.pt` files containing:
+```python
+{
+    'states': torch.FloatTensor,    # (N, 3, 6, 7) board states
+    'policies': torch.FloatTensor,  # (N, 7) MCTS policy targets
+    'values': torch.FloatTensor,    # (N, 1) game outcome values
+    'metadata': dict                # Generation info
+}
+```
+
+**Generation Parameters:**
+- MCTS Simulations: 200-250 per move (high quality)
+- Dirichlet Noise: Enabled for exploration
+- Data Augmentation: Horizontal board flipping
+- Source Model: Trained AlphaZero ResNet (ELO 1800+)
+
+**Expected for 10,000 games:**
+- Total positions: ~400K-500K (with augmentation)
+- File size: ~200-300 MB
+- Generation time: ~1.5 hours (5 CPUs, 250 sims)
+
+## Training Output
+
+Training logs show:
+- Train/Val loss (combined policy + value)
+- Policy loss (cross-entropy with MCTS targets)
+- Value loss (MSE with game outcomes)
+
+Example:
+```
+Epoch  10/100 | Train Loss: 1.2345 | Val Loss: 1.3456 | Val Policy: 1.1000 | Val Value: 0.2456
+  -> Saved weights to weights_epoch_0010.pt
+```
+
+## Requirements
+
+- Python 3.13+
+- PyTorch 2.9+
+- NumPy 2.3+
+- See `dataset/Alpha-Zero-algorithm-for-Connect-4-game/pyproject.toml` for dependencies
+
+## Key Features
+
+### Core Capabilities
+- **18-configuration ablation study**: Systematic sweep over kernel sizes, CNN channels, and GRU hidden dimensions
+- **Comprehensive observability**: Gate statistics, eigenvalue analysis, hidden state sampling
+- **Advanced visualization**: PHATE trajectories, CKA similarity, Grad-CAM attention
+- **Interpretability toolkit**: Mutual information analysis, linear probing, fixed-point finding
+
+### Analysis Methods
+- **Weight space**: Norms, SVD, step statistics, trajectory embeddings
+- **GRU dynamics**: Gates, timescales, attractors, fixed points
+- **Feature encoding**: MI per dimension, neuron specialization, probing
+- **Cross-model**: CKA similarity, metric-space embedding, factorial analysis
+
+### Documentation Depth
+- **User manual**: 30+ command/plot guides with examples
+- **Scientific theory**: 350+ lines on dynamical systems, information theory
+- **Case studies**: 6 detailed examples from RNN interpretability literature
+- **References**: 50+ papers with annotations
+
 ---
 
-## 🔗 External Resources
+## Getting Started
 
-- **Project Repository**: [GitHub](https://github.com/yourusername/weight-trajectories) (if applicable)
-- **Related Papers**:
-  - Sussillo & Barak (2013): "Opening the black box" - [arXiv](https://arxiv.org/abs/1211.4722)
-  - Maheswaranathan et al. (2019): "Line attractors in RNNs" - [NeurIPS](https://papers.nips.cc/paper/9419-reverse-engineering-recurrent-networks-for-sentiment-classification-reveals-line-attractor-dynamics)
-  - Lei et al. (2024): "STRIL for Connect Four" - [arXiv](https://arxiv.org/html/2409.19363v2)
+### For Users: Run Your First Analysis
+
+```bash
+# 1. Generate dataset (test run: 20 games, ~20 seconds)
+./wt.sh dataset flat --test-run
+
+# 2. Train a model
+./wt.sh train --data data/connect4_test.pt --epochs 30
+
+# 3. Analyze GRU dynamics
+./wt.sh observability extract    # Collect data
+./wt.sh observability analyze    # Generate plots
+```
+
+See [User Manual](manual/) for complete guide.
+
+### For Researchers: Understand the Theory
+
+Start with [Scientific Background](scientific/):
+1. [Theoretical Foundations](scientific/theoretical_foundations) - Core concepts
+2. [Case Studies](scientific/case_studies) - Concrete examples
+3. [GRU Observability Literature](scientific/gru_observability_literature) - Gap analysis and priorities
+
+### For Developers: Architecture Details
+
+Check [Technical Reference](reference/):
+- [Architecture Diagrams](reference/architecture_diagrams) - Model structure
+- [Methods Reference](reference/methods) - Algorithms and library links
 
 ---
 
-## 📝 Contributing to Documentation
+## What Makes This Project Unique
 
-When adding new features:
+### Research-Grade Interpretability
+Unlike typical RL projects that stop at training, we provide:
+- **Dynamical systems analysis**: Fixed points, attractors, stability
+- **Information-theoretic probing**: What and how features are encoded
+- **Mechanistic understanding**: Not just "it works" but "here's how"
 
-1. **User-facing**: Update `manual/commands/` and `manual/plots/`
-2. **Scientific context**: Add to `scientific/` if novel technique
-3. **Changelog**: Document major changes in `reference/changelog/`
-4. **Cross-link**: Add entries to this README under "Common Tasks"
+### Comprehensive Documentation
+Every plot explained, every algorithm detailed, every paper cited:
+- **342-line workflow guide** for GRU interpretability
+- **403-line reference** on mutual information analysis
+- **500-line case study collection** from literature
 
-See [`reference/changelog/2025-10-28_mi_dimension_analysis.md`](./reference/changelog/2025-10-28_mi_dimension_analysis.md) for an example.
+### Bridging AI and Neuroscience
+Methods inspired by computational neuroscience:
+- Attractor network theory from brain research
+- Fixed-point analysis from neural dynamics
+- Information-theoretic principles from sensory coding
 
 ---
 
-## ⚡ Version
+## Citation
 
-**Last Updated**: 2025-10-28
-**Major Features**:
-- Complete GRU observability pipeline (gates, eigenvalues, probes, MI)
-- Per-dimension mutual information analysis (neuron specialization)
-- Fixed-point finding and attractor evolution
-- Weight trajectory embeddings (PHATE)
+### AlphaZero Implementation
+- [Alpha-Zero-algorithm-for-Connect-4-game](https://github.com/Bruneton/Alpha-Zero-algorithm-for-Connect-4-game)
+- Authors: Jean-Philippe Bruneton, Adèle Douin, Vincent Reverdy
+- License: BSD 3-Clause
+
+### Key References for Methods
+- **Fixed points**: Sussillo & Barak (2013) - Neural Computation
+- **PHATE**: Moon et al. (2019) - Nature Biotechnology
+- **Mutual information**: Kraskov et al. (2004) - Physical Review E
+- **Attractor networks**: Khona & Fiete (2022) - Nature Reviews Neuroscience
+
+See [complete bibliography](scientific/references) for 50+ citations.

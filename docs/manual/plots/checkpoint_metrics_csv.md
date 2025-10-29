@@ -1,7 +1,11 @@
-# Checkpoint metrics CSV
+# Checkpoint Metrics (CSV)
 
-Produced by: `./wt.sh metrics` → `scripts/compute_checkpoint_metrics.py`
-Location: `diagnostics/checkpoint_metrics/<run>_metrics.csv`
+Overview
+- Computes weight/step/representation metrics per checkpoint to track training stability and capacity use.
+- Supports quick comparisons across runs and feeds shared metric embeddings.
+
+How to Generate
+- `./wt.sh metrics` (writes `diagnostics/checkpoint_metrics/<run>_metrics.csv` via `scripts/compute_checkpoint_metrics.py`)
 
 ## Purpose
 

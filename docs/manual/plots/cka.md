@@ -1,7 +1,19 @@
-# CKA similarity
+# CKA Similarity
 
-Produced by: `./wt.sh cka [--representation gru|cnn]`
-Backed by: `scripts/compute_cka_similarity.py`
+Overview
+- Measures representational similarity between models using Centered Kernel Alignment (CKA), across epochs and architectures.
+- Answers whether different capacities converge to similar internal representations when evaluated on the same boards.
+
+How to Generate
+- `./wt.sh cka [--representation gru|cnn]` (uses `scripts/compute_cka_similarity.py`)
+
+Why CKA
+- Compares representations across different architectures and initializations; robust to invertible linear transforms.
+- Standard since 2019 for cross‑model similarity; enables epoch‑by‑epoch evolution analysis.
+
+Recommended usage
+- Compute per‑epoch 9×9 similarity matrices; visualize as heatmaps and animate over epochs.
+- Optionally cluster rows/columns to reveal architectural families and convergence patterns.
 
 ## Purpose
 
@@ -124,3 +136,7 @@ Tips
 - Compare GRU vs CNN CKA: GRU similarity reflects memory dynamics; CNN similarity focuses on spatial feature extractors.
 - Use --num-boards to balance compute vs stability—more boards smooths the estimate.
 - Keep epochs aligned with checkpoints from `save_every_3`; for a quick scan, use `--epoch-step 9` to capture 3–30–60–90–100.
+- Compute per‑epoch 9×9 similarity matrices; visualize as heatmaps and animate over epochs.
+- Optionally cluster rows/columns to reveal architectural families and convergence patterns.
+ 
+See also: [Methods Reference](../../reference/methods).

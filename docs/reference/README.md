@@ -6,7 +6,10 @@ Architecture specifications, internal documentation, and technical guides.
 
 ## Contents
 
-### [Architecture Diagrams](./architecture_diagrams.md)
+### [Methods Reference](methods)
+Common algorithms and measures (CKA, MI, Grad‑CAM, PHATE/UMAP/t‑SNE/PCA) with links to libraries.
+
+### [Architecture Diagrams](architecture_diagrams)
 How to generate publication-ready diagrams of the ResNet+GRU model.
 
 **Tools covered**:
@@ -27,36 +30,18 @@ How to generate publication-ready diagrams of the ResNet+GRU model.
 
 ---
 
-### [Changelog](./changelog/)
-Internal documentation of major feature additions and updates.
-
-**Recent updates**:
-- **[2025-10-28: Per-Dimension MI Analysis](./changelog/2025-10-28_mi_dimension_analysis.md)**
-  - Added neuron-level mutual information analysis
-  - New plots: `mi_per_dimension_*.png`, `mi_dimension_values_*.png`
-  - Updated manual with comprehensive interpretation guides
-  - 342-line workflow guide created
-
-**Future entries**:
-- Add new markdown files here when making significant documentation updates
-- Format: `YYYY-MM-DD_feature_name.md`
-- Include: what changed, files modified, user impact
-
----
-
 ## Quick Links
 
 ### For Developers
-- **Model Architecture**: [`architecture_diagrams.md`](./architecture_diagrams.md)
-- **Recent Changes**: [`changelog/`](./changelog/)
+- **Model Architecture**: [Architecture Diagrams](architecture_diagrams)
 
 ### For Documentation Maintainers
 - **Update Workflow**:
   1. Implement feature
-  2. Update user manual ([`../manual/`](../manual/))
-  3. Add scientific context if novel ([`../scientific/`](../scientific/))
-  4. Document changes ([`changelog/`](./changelog/))
-  5. Update main README ([`../README.md`](../README.md))
+  2. Update user manual: [User Manual](../manual/)
+  3. Add scientific context if novel: [Scientific Background](../scientific/)
+  4. Reference shared methods: [Methods](methods)
+  5. Update main README: [Documentation Home](../)
 
 ---
 
@@ -65,24 +50,13 @@ Internal documentation of major feature additions and updates.
 ### File Organization
 ```
 reference/
-├── README.md (this file)
-├── architecture_diagrams.md    # Model visualization guides
-└── changelog/                  # Major update summaries
-    └── 2025-10-28_mi_dimension_analysis.md
+├── README.md
+├── methods.md                  # Shared methods and libraries
+└── architecture_diagrams.md    # Model visualization guides
 ```
-
-### When to Add to Changelog
-Document major changes that affect users:
-- ✅ New analysis features (e.g., per-dimension MI)
-- ✅ Breaking changes to command interfaces
-- ✅ Significant documentation restructuring
-- ❌ Bug fixes (use git commit messages)
-- ❌ Minor doc typos (just fix directly)
-
----
 
 ## Cross-References
 
-- **Main Documentation**: [`../README.md`](../README.md)
-- **User Manual**: [`../manual/`](../manual/)
-- **Scientific Background**: [`../scientific/`](../scientific/)
+- **Main Documentation**: [Documentation Home](../)
+- **User Manual**: [User Manual](../manual/)
+- **Scientific Background**: [Scientific Background](../scientific/)

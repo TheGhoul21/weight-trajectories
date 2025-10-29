@@ -1,7 +1,25 @@
-# Metric-space trajectory embeddings
+# Metric-Space Trajectory Embeddings
 
-Produced by: `./wt.sh trajectory-embedding [--method umap|tsne|phate]`
-Backed by: `scripts/visualize_trajectory_embedding.py`
+Overview
+- Embeds training checkpoints into a shared 2D space using architecture‑agnostic metrics (loss, weight norms, representation quality) rather than raw weights.
+- Reveals architectural families, regime changes, and overfitting/underfitting patterns across models.
+
+How to Generate
+- `./wt.sh trajectory-embedding [--method umap|tsne|phate]` (runs `scripts/visualize_trajectory_embedding.py`)
+
+Why metric space vs raw weights
+- Different architectures have incompatible parameter spaces; raw weights are not directly comparable.
+- Shared metrics (norms, step statistics, losses, representation variance) are architecture‑agnostic and support joint embeddings across models.
+
+Pros and cons
+- Pros: Comparable across architectures; easy to compute from CSVs; reveals regime shifts and overfitting arcs.
+- Cons: Abstracts away full representational content; embedding depends on feature selection and scaling.
+
+Recommended usage
+- Use UMAP as default; color by model, shape by GRU size, and size by epoch.
+- Validate findings with PHATE/PCA sensitivity checks; inspect specific regimes by subsetting epochs.
+ 
+See also: [Methods Reference](../../reference/methods).
 
 ## Purpose
 

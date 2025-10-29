@@ -1,6 +1,11 @@
-# Weight and representation embeddings
+# Weight and Representation Embeddings
 
-Produced by: `./wt.sh embeddings` → `scripts/analyze_weight_embeddings.py`
+Overview
+- Embeds high‑dimensional weight snapshots and optional hidden‑state representations to visualize training dynamics and representation geometry.
+- Useful for sanity checks and sensitivity analyses alongside PHATE‑based trajectory plots.
+
+How to Generate
+- `./wt.sh embeddings` (uses `scripts/analyze_weight_embeddings.py`)
 
 ## Purpose
 
@@ -59,7 +64,7 @@ Four dimensionality reduction techniques, each revealing different aspects of tr
 - **Best for**: Sparse checkpoint sampling (few epochs), temporal continuity
 - **Characteristics**: Smoothest trajectories; handles sparse data well
 - **Auto-tuning**: `knn = max(2, min(5, n_samples-1))`
-- **Why this choice**: See [`../../scientific/weight_embeddings_theory.md`](../../scientific/weight_embeddings_theory.md)
+- **Why this choice**: See [Weight Trajectory Analysis with PHATE](scientific/weight_embeddings_theory)
 
 ## Visual Elements
 

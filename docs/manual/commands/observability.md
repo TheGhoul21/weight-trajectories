@@ -1,6 +1,10 @@
 # wt observability
 
-GRU observability and dynamics pipeline.
+Overview
+- Runs the GRU observability and dynamics pipeline: extract data, analyze gates/embeddings/probes, compute MI, and (optionally) find/evolve fixed points.
+
+How to Run
+- `./wt.sh observability extract|analyze|mi|fixed|evolve [options]`
 
 Subcommands
 - extract → scripts/extract_gru_dynamics.py
@@ -91,6 +95,7 @@ evolve (visualize fixed-point evolution)
   - <model>_attractor_drift.png
 
 Explainers
-- See [GRU observability + probes](../plots/gru_observability.md)
-- See [GRU mutual information](../plots/gru_mutual_info.md)
-- See [GRU fixed points + evolution](../plots/fixed_points.md)
+- See [GRU Observability](manual/plots/gru_observability)
+- See [GRU Mutual Information](manual/plots/gru_mutual_info)
+- See [GRU Fixed Points and Evolution](manual/plots/fixed_points)
+- See [Methods Reference](../../reference/methods) for library links (scikit‑learn MI, PHATE, UMAP, Grad‑CAM).

@@ -1,6 +1,12 @@
 # wt dataset
 
-Generate Connect-4 datasets from the bundled AlphaZero implementation.
+Overview
+- Generates Connect Four datasets (flat positions or sequential games) using the bundled AlphaZero implementation.
+- Sequential format is required for GRU training and downstream observability analyses.
+
+How to Run
+- `./wt.sh dataset flat [options]`
+- `./wt.sh dataset sequential [options]`
 
 Subcommands
 - flat → scripts/generate_connect4_dataset.py
@@ -10,9 +16,8 @@ Inputs and outputs
 - Reads: AlphaZero code under `dataset/Alpha-Zero-algorithm-for-Connect-4-game`, may write temp files in its `data/`.
 - Writes: `.pt` dataset at the requested path and a sidecar `.json` with metadata.
 
-Usage
-- Flat positions: `./wt.sh dataset flat [options]`
-- Sequential games: `./wt.sh dataset sequential [options]`
+Libraries
+- AlphaZero generator (external repo), NumPy, PyTorch.
 
 Options (flat)
 - --num-games [int, default 10000]

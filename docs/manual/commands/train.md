@@ -1,6 +1,10 @@
 # wt train
 
-Train a single ResNet+GRU model and save checkpoints every N epochs.
+Overview
+- Trains a single ResNet+GRU model and saves checkpoints periodically for downstream analysis.
+
+How to Run
+- `./wt.sh train --data <path> [options]`
 
 Maps to: `python src/train.py`
 

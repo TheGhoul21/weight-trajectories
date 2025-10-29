@@ -1,7 +1,12 @@
-# Unified visualization suite
+# Unified Visualization Suite
 
-Produced by: `./wt.sh visualize --config <json>` → runs `python -m src.visualize_trajectories` with presets and writes a markdown summary.
-See also: direct CLI `python -m src.visualize_trajectories` (viz-type: all|cnn|gru|boards|summary|joint|ablation-cnn|ablation-gru|activations).
+Overview
+- Generates the standard set of plots (CNN/GRU weight trajectories, representations, summaries, activations, ablations) with consistent styling and annotations.
+- Intended for quick end‑to‑end reporting and reproducible figures.
+
+How to Generate
+- `./wt.sh visualize --config <json>` (invokes `python -m src.visualize_trajectories` with presets)
+- Direct CLI: `python -m src.visualize_trajectories` with `--viz-type` of `all|cnn|gru|boards|summary|joint|ablation-cnn|ablation-gru|activations`.
 
 Key figures (by viz-type)
 - cnn_trajectory.png: PHATE embedding of CNN weight snapshots; points colored by epoch with start/end markers and min/final val-loss markers if history is present

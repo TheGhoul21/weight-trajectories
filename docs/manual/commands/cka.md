@@ -1,6 +1,11 @@
 # wt cka
 
-CKA (Centered Kernel Alignment) similarity between models’ representations.
+Overview
+- Computes Centered Kernel Alignment (CKA) similarity between models’ representations (GRU or CNN) on a fixed set of boards.
+- Answers whether different capacities converge to similar internal encodings.
+
+How to Run
+- `./wt.sh cka [args]` (non‑interactive) or `./wt.sh cka wizard` (interactive)
 
 - `./wt.sh cka wizard` → friendly interactive runner (scripts/run_cka_wizard.sh)
 - `./wt.sh cka [args]` → direct run (scripts/compute_cka_similarity.py)
@@ -28,4 +33,4 @@ Writes (under `<output-dir>/<representation>/`)
 - `cka_{rep}_similarity_epoch_{E}.csv` raw matrices
 - Optional: `cka_{rep}_heatmap_animation.gif|mp4`
 
-Plot explainers: see [CKA similarity](../plots/cka.md)
+Plot explainers: see [CKA Similarity](manual/plots/cka)

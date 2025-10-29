@@ -228,7 +228,7 @@ mi_dimension_values_k3_c32_gru32.png:
 
 ## Board feature extraction
 
-This section explains how the 12 features are computed from raw Connect Four board states.
+The 12 features are computed from raw Connect Four board states as follows:
 
 ### Input format
 

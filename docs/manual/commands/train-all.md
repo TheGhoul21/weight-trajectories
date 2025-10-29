@@ -1,6 +1,10 @@
 # wt train-all
 
-Train the 3 GRU sizes {8, 32, 128} with your chosen kernel size and channel set.
+Overview
+- Trains the 3 GRU sizes {8, 32, 128} across your chosen kernel size and channel set; produces the 3×3 sweep used by comparison plots.
+
+How to Run
+- `./wt.sh train-all [options]`
 
 Maps to: wrapper around `src/train.py` with batching and sensible batch size tweaks.
 

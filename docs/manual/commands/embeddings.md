@@ -1,6 +1,10 @@
 # wt embeddings
 
-Low-dimensional embeddings of weight trajectories, with optional board representations.
+Overview
+- Computes low‑dimensional embeddings of weight trajectories and optional hidden‑state representations for sanity checks and qualitative comparisons.
+
+How to Run
+- `./wt.sh embeddings [args]` (non‑interactive) or `./wt.sh embeddings wizard` (interactive)
 
 - `./wt.sh embeddings wizard` → interactive selector (scripts/run_embedding_wizard.sh)
 - `./wt.sh embeddings [args]` → non-interactive (scripts/analyze_weight_embeddings.py)
@@ -35,4 +39,4 @@ Writes
   - `repr_{method}.png` if board representations enabled
 - Overlay comparisons under `<output-dir>/comparisons/` when `--compare`
 
-See plot reference: [Weight/representation embeddings](../plots/embeddings_weights.md)
+See plot reference: [Weight/representation embeddings](manual/plots/embeddings_weights)

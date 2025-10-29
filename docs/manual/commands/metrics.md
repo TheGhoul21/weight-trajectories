@@ -1,6 +1,10 @@
 # wt metrics
 
-Compute diagnostic metrics from checkpoints and optionally representation stats.
+Overview
+- Computes per‑checkpoint diagnostics (weight norms, step statistics, optional representation SVD) used across visualizations and embeddings.
+
+How to Run
+- `./wt.sh metrics` (invokes `python scripts/compute_checkpoint_metrics.py`)
 
 Maps to: `python scripts/compute_checkpoint_metrics.py`
 
@@ -31,4 +35,4 @@ CSV columns
 - repr_total_variance (optional)
 - repr_top{1..K}_ratio (optional)
 
-See also: Plot/CSV reference → [Checkpoint metrics CSV](../plots/checkpoint_metrics_csv.md)
+See also: Plot/CSV reference → [Checkpoint metrics CSV](manual/plots/checkpoint_metrics_csv)

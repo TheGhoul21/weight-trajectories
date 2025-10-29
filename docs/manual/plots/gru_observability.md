@@ -1,7 +1,14 @@
-# GRU observability + probes
+# GRU Observability
 
-Produced by: `./wt.sh observability analyze` → `scripts/analyze_gru_observability_results.py`
-Inputs from: `./wt.sh observability extract` → `diagnostics/gru_observability/<model>/`
+Overview
+- Characterizes GRU computation over training via gate behavior, memory timescales, hidden‑state geometry, and linear decodability of task variables.
+- Answers: What is remembered, how long, and which features are encoded; when do strategic modes emerge.
+
+How to Generate
+- Data collection: `./wt.sh observability extract` (writes to `diagnostics/gru_observability/<model>/`)
+- Analysis and plots: `./wt.sh observability analyze` (runs `scripts/analyze_gru_observability_results.py`)
+ 
+See also: [Methods Reference](../../reference/methods) for mutual information, probes, PHATE, and Grad‑CAM library links.
 
 ## Purpose
 

@@ -1,8 +1,12 @@
-# GRU fixed points + evolution
+# GRU Fixed Points and Evolution
 
-Produced by:
-- Discovery: `./wt.sh observability fixed` → `scripts/find_gru_fixed_points.py`
-- Evolution: `./wt.sh observability evolve` → `scripts/analyze_fixed_point_evolution.py`
+Overview
+- Identifies fixed points (equilibria) of the GRU for selected contexts, classifies stability, and tracks evolution across training.
+- Connects learned computation to dynamical mechanisms (stable modes, decision boundaries) and their emergence during learning.
+
+How to Generate
+- Discovery: `./wt.sh observability fixed` (runs `scripts/find_gru_fixed_points.py`)
+- Evolution: `./wt.sh observability evolve` (runs `scripts/analyze_fixed_point_evolution.py`)
 
 ## Purpose
 

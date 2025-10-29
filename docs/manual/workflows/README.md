@@ -1,13 +1,18 @@
 # Analysis Workflows
 
-End-to-end guides for common analysis tasks.
+Overview
+- End‑to‑end guides for common analysis tasks, written as a practical manual to learn concepts through code.
+
+How to Use
+- Start from the workflow matching your goal below and follow the commands.
+- Each workflow links to relevant command and plot pages for detail.
 
 ---
 
 ## Available Workflows
 
-### [GRU Interpretability Pipeline](./gru_interpretability.md)
-**Complete guide to analyzing recurrent network internals** (342 lines)
+### [GRU Interpretability Pipeline](manual/workflows/gru_interpretability)
+Complete guide to analyzing recurrent network internals.
 
 **What it covers**:
 1. **Setup & extraction** - Collect gate statistics, eigenvalues, hidden samples
@@ -52,7 +57,7 @@ End-to-end guides for common analysis tasks.
 
 ### "I want to understand GRU behavior"
 
-**→ [GRU Interpretability Pipeline](./gru_interpretability.md)**
+**→ [GRU Interpretability Pipeline](manual/workflows/gru_interpretability)**
 
 Full 5-stage analysis covering:
 - Memory mechanisms (gates, timescales)
@@ -66,7 +71,7 @@ Full 5-stage analysis covering:
 1. Train all models: `./wt.sh train-all`
 2. CKA similarity: `./wt.sh cka --representation gru`
 3. Metric-space embedding: `./wt.sh trajectory-embedding`
-4. Per-model GRU analysis: [GRU pipeline](./gru_interpretability.md) for each
+4. Per-model GRU analysis: [GRU pipeline](manual/workflows/gru_interpretability) for each
 
 **Questions answered**:
 - Do GRU32 and GRU128 learn similar representations?
@@ -76,16 +81,16 @@ Full 5-stage analysis covering:
 ### "I need publication figures"
 
 **For weight trajectories**:
-- [embeddings_weights.md](../plots/embeddings_weights.md) - Use PHATE with annotations
+- [embeddings_weights](manual/plots/embeddings_weights) - Use PHATE with annotations
 
 **For GRU analysis**:
-- [GRU Interpretability Pipeline](./gru_interpretability.md) → Scenario 3: "Preparing paper figures"
+- [GRU Interpretability Pipeline](manual/workflows/gru_interpretability) → Scenario 3: "Preparing paper figures"
   - Gate trajectory plots
   - MI heatmaps (per-dimension)
   - Fixed-point evolution
 
 **For CNN visualization**:
-- [activations.md](../plots/activations.md) - Grad-CAM on critical game states
+- [activations](manual/plots/activations) - Grad-CAM on critical game states
 
 ---
 
@@ -101,7 +106,7 @@ Planned guides:
 
 ## Cross-References
 
-- **Commands**: [../commands/README.md](../commands/README.md)
-- **Plot interpretation**: [../plots/README.md](../plots/README.md)
-- **Main manual**: [../README.md](../README.md)
-- **Scientific background**: [../../scientific/README.md](../../scientific/README.md)
+- **Commands**: [Commands Reference](manual/commands/)
+- **Plot interpretation**: [Plots & Outputs](manual/plots/)
+- **Main manual**: [User Manual Home](manual/)
+- **Scientific background**: [Scientific Background](scientific/)

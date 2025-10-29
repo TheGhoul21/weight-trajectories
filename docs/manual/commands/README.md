@@ -7,15 +7,15 @@ Complete reference for all `./wt.sh` commands.
 ## Quick Navigation
 
 ### Core Workflow
-1. **[dataset](./dataset.md)** - Generate Connect Four training data
-2. **[train](./train.md)** - Train single model configuration
-3. **[train-all](./train-all.md)** - Train full architecture sweep (9 models)
-4. **[metrics](./metrics.md)** - Compute checkpoint diagnostics (weight norms, SVD)
-5. **[visualize](./visualize.md)** - Generate trajectory embeddings and plots
+1. **[dataset](manual/commands/dataset)** - Generate Connect Four training data
+2. **[train](manual/commands/train)** - Train single model configuration
+3. **[train-all](manual/commands/train-all)** - Train full architecture sweep (9 models)
+4. **[metrics](manual/commands/metrics)** - Compute checkpoint diagnostics (weight norms, SVD)
+5. **[visualize](manual/commands/visualize)** - Generate trajectory embeddings and plots
 
 ### GRU Analysis
 Complete pipeline for recurrent network interpretability:
-- **[observability](./observability.md)** - Extract and analyze GRU dynamics
+- **[observability](manual/commands/observability)** - Extract and analyze GRU dynamics
   - `extract`: Gate statistics, eigenvalues, hidden samples
   - `analyze`: PHATE embeddings, logistic probes
   - `fixed`: Fixed-point finding
@@ -23,18 +23,18 @@ Complete pipeline for recurrent network interpretability:
   - `mi`: Mutual information analysis
 
 ### Cross-Model Comparison
-- **[cka](./cka.md)** - Representational similarity (CKA heatmaps)
-- **[trajectory-embedding](./trajectory-embedding.md)** - Metric-space trajectory plots
-- **[factorial](../plots/factorial_heatmaps.md)** - Factorial analysis across architecture sweep
-- **[analyze](./analyze.md)** - Unified analysis wizard (interactive)
+- **[cka](manual/commands/cka)** - Representational similarity (CKA heatmaps)
+- **[trajectory-embedding](manual/commands/trajectory-embedding)** - Metric-space trajectory plots
+- **[factorial](manual/plots/factorial_heatmaps)** - Factorial analysis across architecture sweep
+- **[analyze](manual/commands/analyze)** - Unified analysis wizard (interactive)
 
 ### Export & Reporting
-- **[onnx](./onnx.md)** - Export models to ONNX format
-- **[model](./model.md)** - Model inspection and testing
-- **[report](./report.md)** - Generate analysis reports
+- **[onnx](manual/commands/onnx)** - Export models to ONNX format
+- **[model](manual/commands/model)** - Model inspection and testing
+- **[report](manual/commands/report)** - Generate analysis reports
 
 ### Utilities
-- **[python-path](./python-path.md)** - Print Python interpreter path
+- **[python-path](manual/commands/python-path)** - Print Python interpreter path
 
 ---
 
@@ -43,35 +43,35 @@ Complete pipeline for recurrent network interpretability:
 ### Data Preparation
 | Command | Purpose | Outputs |
 |---------|---------|---------|
-| [dataset](./dataset.md) | Generate sequential Connect Four games | `data/*.pt` |
+| [dataset](manual/commands/dataset) | Generate sequential Connect Four games | `data/*.pt` |
 
 ### Training
 | Command | Purpose | Outputs |
 |---------|---------|---------|
-| [train](./train.md) | Train single model | `checkpoints/<run>/weights_epoch_*.pt` |
-| [train-all](./train-all.md) | Train 9 architectures | `checkpoints/save_every_3/k*_c*_gru*/` |
+| [train](manual/commands/train) | Train single model | `checkpoints/<run>/weights_epoch_*.pt` |
+| [train-all](manual/commands/train-all) | Train 9 architectures | `checkpoints/save_every_3/k*_c*_gru*/` |
 
 ### Analysis & Diagnostics
 | Command | Purpose | Key Outputs |
 |---------|---------|-------------|
-| [metrics](./metrics.md) | Weight/repr statistics | `diagnostics/checkpoint_metrics/*.csv` |
-| [observability](./observability.md) | GRU dynamics | `diagnostics/gru_observability/`, `visualizations/gru_observability/` |
-| [cka](./cka.md) | Repr similarity | `visualizations/cka_*/` |
-| [factorial](../plots/factorial_heatmaps.md) | Factorial analysis | `visualizations/factorial/factorial_heatmaps.png` |
-| [analyze](./analyze.md) | Interactive wizard | User-guided workflows |
+| [metrics](manual/commands/metrics) | Weight/repr statistics | `diagnostics/checkpoint_metrics/*.csv` |
+| [observability](manual/commands/observability) | GRU dynamics | `diagnostics/gru_observability/`, `visualizations/gru_observability/` |
+| [cka](manual/commands/cka) | Repr similarity | `visualizations/cka_*/` |
+| [factorial](manual/plots/factorial_heatmaps) | Factorial analysis | `visualizations/factorial/factorial_heatmaps.png` |
+| [analyze](manual/commands/analyze) | Interactive wizard | User-guided workflows |
 
 ### Visualization
 | Command | Purpose | Key Outputs |
 |---------|---------|-------------|
-| [visualize](./visualize.md) | Weight trajectories | `visualizations/*/` |
-| [trajectory-embedding](./trajectory-embedding.md) | Metric-space plots | `visualizations/trajectory_embedding_*.png` |
+| [visualize](manual/commands/visualize) | Weight trajectories | `visualizations/*/` |
+| [trajectory-embedding](manual/commands/trajectory-embedding) | Metric-space plots | `visualizations/trajectory_embedding_*.png` |
 
 ### Export
 | Command | Purpose | Outputs |
 |---------|---------|---------|
-| [onnx](./onnx.md) | Export to ONNX | `*.onnx` |
-| [model](./model.md) | Model info | stdout |
-| [report](./report.md) | Analysis reports | `reports/*.md` |
+| [onnx](manual/commands/onnx) | Export to ONNX | `*.onnx` |
+| [model](manual/commands/model) | Model info | stdout |
+| [report](manual/commands/report) | Analysis reports | `reports/*.md` |
 
 ---
 
@@ -95,7 +95,7 @@ Complete pipeline for recurrent network interpretability:
 ./wt.sh observability evolve          # Track evolution
 ```
 
-See [GRU Interpretability Workflow](../workflows/gru_interpretability.md) for complete guide.
+See [GRU Interpretability Workflow](manual/workflows/gru_interpretability) for complete guide.
 
 ### Compare architectures
 ```bash
@@ -110,13 +110,13 @@ See [GRU Interpretability Workflow](../workflows/gru_interpretability.md) for co
 
 - **Command help**: `./wt.sh <command> --help`
 - **General help**: `./wt.sh help`
-- **Workflow guides**: [../workflows/](../workflows/)
-- **Plot interpretation**: [../plots/](../plots/)
+- **Workflow guides**: [Workflows](manual/workflows/)
+- **Plot interpretation**: [Plots & Outputs](manual/plots/)
 
 ---
 
 ## Cross-References
 
-- **Plot outputs explained**: [../plots/README.md](../plots/README.md)
-- **End-to-end workflows**: [../workflows/README.md](../workflows/README.md)
-- **Main manual**: [../README.md](../README.md)
+- **Plot outputs explained**: [Plots & Outputs](manual/plots/)
+- **End-to-end workflows**: [Workflows](manual/workflows/)
+- **Main manual**: [User Manual Home](manual/)

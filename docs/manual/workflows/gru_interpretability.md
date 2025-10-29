@@ -348,7 +348,7 @@ with torch.no_grad():
 
 ## Cross-References
 
-- Command reference: [observability.md](../commands/observability.md)
-- Plot explainers: [gru_mutual_info.md](../plots/gru_mutual_info.md), [gru_observability.md](../plots/gru_observability.md), [fixed_points.md](../plots/fixed_points.md)
+- Command reference: [observability](manual/commands/observability)
+- Plot explainers: [gru_mutual_info](manual/plots/gru_mutual_info), [gru_observability](manual/plots/gru_observability), [fixed_points](manual/plots/fixed_points)
 - Research context: `docs/gru_observability_gap_analysis.md` (comparison with literature)
 - Per-dimension MI theory: `docs/mi_dimension_analysis.md`

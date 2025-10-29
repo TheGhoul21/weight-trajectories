@@ -1,8 +1,11 @@
-# wt analyze (wizard)
+# wt analyze (Wizard)
 
-Master wizard that runs the full trajectory pipeline end-to-end.
+Overview
+- Runs the end‑to‑end analysis pipeline: metrics → visuals → report, across all saved runs.
+- Good starting point for users who want a complete, reproducible pass.
 
-Maps to: `scripts/analyze_trajectories_wizard.sh`
+How to Run
+- `./wt.sh analyze` (invokes `scripts/analyze_trajectories_wizard.sh`)
 
 Pipeline steps
 1) Metrics: compute_checkpoint_metrics across all runs in `checkpoints/save_every_3`
@@ -26,7 +29,7 @@ Writes
 - diagnostics/trajectory_analysis/ANALYSIS_REPORT.md
 
 Artifacts are explained under:
-- [Checkpoint metrics CSV](../plots/checkpoint_metrics_csv.md)
-- [Unified visualization suite](../plots/visualize_unified.md)
-- [Metric-space trajectory embeddings](../plots/trajectory_metric_space.md)
-- [Report generation](../plots/visualize_unified.md)
+- [Checkpoint metrics CSV](manual/plots/checkpoint_metrics_csv)
+- [Unified visualization suite](manual/plots/visualize_unified)
+- [Metric-space trajectory embeddings](manual/plots/trajectory_metric_space)
+- [Report generation](manual/plots/visualize_unified)

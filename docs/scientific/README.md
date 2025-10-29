@@ -1,127 +1,105 @@
 # Scientific Background
 
-Research context, literature reviews, and theoretical foundations for weight trajectory analysis and GRU interpretability.
+## Overview
+
+Understanding recurrent neural networks requires moving beyond training metrics to analyze the computational mechanisms learned during training. The GRU in Connect Four learns to integrate temporal information, maintain memory of board states, and develop internal representations of game strategy. Our analysis framework draws on three complementary perspectives:
+
+**Dynamical Systems Theory** treats the GRU as a system evolving through state space, where computation emerges from attractor landscapes and fixed points. This perspective, pioneered by Sussillo & Barak (2013), reveals how networks implement algorithms through their temporal dynamics.
+
+**Information Theory** quantifies what information the network encodes and where it is stored. Mutual information analysis identifies which hidden units represent specific game features, while probing classifiers test the accessibility of this information.
+
+**Computational Neuroscience** provides interpretive frameworks validated by decades of studying biological neural networks. Concepts like attractor networks, working memory, and representational geometry apply equally to artificial and biological systems.
+
+## Analysis Framework
+
+Our approach examines GRU learning across four levels:
+
+**Weight Space Analysis** characterizes the parameter landscape. Eigenvalue spectra of recurrent matrices reveal memory timescales—how long the network can integrate information. Gate statistics show when the network decides to update or reset its state. PHATE embeddings visualize how parameters evolve during training, revealing phases and regime transitions.
+
+**Representation Dynamics** examines the hidden state space where computation occurs. Fixed points are equilibrium states where the network would remain indefinitely under constant input. Attractors are stable fixed points that pull nearby trajectories toward them, implementing discrete memory states or decisions. The geometry of these attractors reflects the computational structure the network has learned.
+
+**Feature Encoding** determines what the network has learned to represent. Linear probes test whether game variables (current player, threats, win conditions) can be read out from hidden states. Mutual information quantifies how much information each hidden dimension carries about each game feature, identifying specialized neurons versus distributed codes.
+
+**Learning Dynamics** tracks how these structures emerge during training. Early training typically shows diffuse, unstructured dynamics. As training progresses, attractors crystallize, gates learn when to update or hold state, and representations organize around task-relevant features. Performance improvements correlate with sharpening of attractor landscapes and increasing mutual information with strategic variables.
+
+## Implementation Status
+
+The repository implements comprehensive weight-space analysis (eigenvalues, gates, PHATE), representation analysis (hidden state sampling, embeddings), and interpretability tools (linear probes, mutual information). The primary gaps are advanced dynamical systems analysis—specifically fixed-point finding and attractor evolution tracking—which would connect internal structure directly to learning progress and gameplay strategy.
 
 ---
 
-## Contents
+## Document Map
 
-### [GRU Observability Literature Review](./gru_observability_literature.md)
-Comprehensive comparison with state-of-the-art RNN interpretability research.
+### Core Documentation
 
-**What's covered**:
-- Weight space analysis (eigenvalues, timescales, gate dynamics)
-- Representation space (fixed points, attractors, manifolds)
-- Learning dynamics evolution during training
-- Interpretability techniques (probing, visualization, FSM extraction)
-- Game-specific studies (Connect Four and beyond)
+- **[Theoretical Foundations](scientific/theoretical_foundations)** - Dynamical systems theory, information theory, and computational neuroscience foundations
+- **[GRU Observability: Intuition, Methods, and Recommendations](scientific/gru_observability_literature)** - Implementation status, research gaps, and opportunities for dynamical systems analysis
+- **[Case Studies](scientific/case_studies)** - Detailed examples from RNN interpretability literature with implementation approaches
 
-**Key insights**:
-- ✅ What we implement (70% coverage): gates, eigenvalues, probes, MI, PHATE embeddings
-- 🔴 Critical gaps: fixed-point analysis, attractor evolution, mutual information evolution
-- 📊 Priority matrix: effort vs impact for missing features
+### Analysis Methods
 
-**Use this for**:
-- Understanding the research landscape
-- Justifying analysis choices in papers
-- Identifying future work directions
+- **[Mutual Information Analysis](scientific/mutual_information_theory)** - Per-dimension MI computation, neuron specialization, and encoding patterns
+- **[Weight Trajectory Analysis with PHATE](scientific/weight_embeddings_theory)** - Manifold learning for parameter evolution and training dynamics
+- **[References](scientific/references)** - Comprehensive bibliography organized by research area
+
+### Practical Workflows
+
+- **End‑to‑end pipeline** to reproduce figures → User Manual workflow: [GRU Interpretability Pipeline](manual/workflows/gru_interpretability)
 
 ---
 
-### [Mutual Information Theory](./mutual_information_theory.md)
-Deep dive into per-dimension MI analysis and neuron specialization.
+## Quick Start: Where to Begin
 
-**What's covered**:
-- Per-dimension vs mean MI computation
-- Neuron specialization patterns (sparse vs distributed encoding)
-- Encoding mechanisms (binary threshold detectors, linear counters, multi-modal)
-- Expected results for Connect Four features
-- Diagnostic use cases (debugging, architecture selection, feature engineering)
+**New to dynamical systems & RNN interpretability?**
+→ Start with [Theoretical Foundations](scientific/theoretical_foundations) for conceptual grounding
 
-**Key insights**:
-- Individual neurons can specialize for specific game concepts
-- High-MI dimensions reveal interpretable "feature detectors"
-- Encoding quality visible in value distributions (violin plots, scatter patterns)
+**Want to see concrete examples?**
+→ Jump to [Case Studies](scientific/case_studies) to see how these methods revealed mechanisms in sentiment RNNs, AlphaZero, and more
 
-**Use this for**:
-- Understanding what MI plots mean
-- Interpreting neuron-level representations
-- Connecting to neuroscience interpretability literature (Karpathy, Maheswaranathan)
+**Ready to implement missing analyses?**
+→ Check [GRU Observability: Intuition, Methods, and Recommendations](scientific/gru_observability_literature) for implementation priorities and code stubs
+
+**Need specific technical details?**
+→ Consult [Mutual Information Analysis](scientific/mutual_information_theory) or [Weight Trajectory Analysis with PHATE](scientific/weight_embeddings_theory)
+
+**Looking for papers to cite?**
+→ Browse [References](scientific/references) organized by topic with annotations
 
 ---
 
-### [Weight Trajectory Embeddings](./weight_embeddings_theory.md)
-Technical explanation of PHATE embeddings for training dynamics.
+## Key Concepts Across Documents
 
-**What's covered**:
-- Why PHATE over PCA/t-SNE for sparse checkpoint sampling
-- Data flow: checkpoint ingestion → weight extraction → embedding → plotting
-- knn parameter adaptation for small datasets
-- Interpretation of weight vs representation trajectories
-- Highlighting minimal-loss and final-epoch checkpoints
+These central ideas appear throughout the documentation:
 
-**Key insights**:
-- PHATE preserves progressive structure in high-dimensional weight changes
-- Smooth trajectories reveal continuous learning (vs abrupt jumps = regime shifts)
-- Weight trajectories show parameter space exploration
-- Representation trajectories show how board encodings evolve
+1. **Fixed points and attractors** - Equilibrium states revealing computational structure
+   - Theory: [Theoretical Foundations §2](scientific/theoretical_foundations#2-fixed-points-and-attractors)
+   - Examples: [Case Studies #1, #2](scientific/case_studies)
+   - Implementation: [GRU Observability: Intuition, Methods, and Recommendations](scientific/gru_observability_literature)
 
-**Use this for**:
-- Understanding trajectory visualization plots
-- Troubleshooting PHATE parameters
-- Interpreting weight-space vs representation-space dynamics
+2. **Mutual information for representation analysis** - Model-free quantification of encoded information
+   - Theory: [Theoretical Foundations §3](scientific/theoretical_foundations#3-information-theory-for-interpretability)
+   - Methods: [Mutual Information Analysis](scientific/mutual_information_theory)
+   - Examples: [Case Studies #3, #6](scientific/case_studies)
 
----
+3. **Training dynamics and attractor emergence** - Evolution of computational structure during learning
+   - Theory: [Theoretical Foundations §6](scientific/theoretical_foundations#6-learning-dynamics-how-attractors-emerge)
+   - Implementation: [GRU Observability: Intuition, Methods, and Recommendations](scientific/gru_observability_literature)
+   - Examples: [Case Studies #3, #5](scientific/case_studies)
 
-## How to Use These Docs
-
-### For Paper Writing
-1. Read [GRU Observability Literature Review](./gru_observability_literature.md) first
-   - Use for "Related Work" section
-   - Cite key papers (Sussillo & Barak, Maheswaranathan, Lei et al.)
-2. Reference [MI Theory](./mutual_information_theory.md) for "Methods" section
-   - Explain per-dimension analysis
-   - Justify neuron specialization claims
-3. Use [Weight Embeddings](./weight_embeddings_theory.md) for trajectory plots
-   - Explain PHATE choice in methods
-   - Interpret learning phases from trajectories
-
-### For Understanding Analysis Results
-1. **MI plots confusing?** → [MI Theory](./mutual_information_theory.md)
-2. **Trajectory plots unexpected?** → [Weight Embeddings](./weight_embeddings_theory.md)
-3. **Want to add new analysis?** → [Literature Review](./gru_observability_literature.md) (see gap analysis)
-
-### For Extending the Project
-Check [Literature Review](./gru_observability_literature.md) priority matrix:
-- **P0**: Fixed-point finding, attractor evolution (very high impact)
-- **P1**: Mutual information evolution, strategy embeddings (high impact)
-- **P2**: Full Jacobian analysis, expanded probing (medium impact)
+4. **Manifold learning and trajectory visualization** - Revealing structure in high-dimensional parameter spaces
+   - Theory: [Theoretical Foundations §4](scientific/theoretical_foundations#4-manifold-learning-and-trajectory-embedding)
+   - Methods: [Weight Trajectory Analysis with PHATE](scientific/weight_embeddings_theory)
+   - Applications: Throughout [Case Studies](scientific/case_studies)
 
 ---
 
-## Cross-References
+## References
 
-- **User Manual**: [`../manual/`](../manual/) - How to run analyses
-- **Plot Guides**: [`../manual/plots/`](../manual/plots/) - How to read outputs
-- **Workflows**: [`../manual/workflows/gru_interpretability.md`](../manual/workflows/gru_interpretability.md) - End-to-end pipelines
+This overview synthesizes results from:
+- **Dynamical systems**: Sussillo & Barak (2013), Maheswaranathan et al. (2019), Huang et al. (2024)
+- **Information theory**: Kraskov et al. (2004), Maheswaranathan & Williams (2024)
+- **Manifold learning**: Moon et al. (2019) - PHATE, Rübel et al. (2023) - T-PHATE
+- **Game-playing**: Silver et al. (2018) - AlphaZero, McGrath et al. (2022), Tian et al. (2024)
+- **Neuroscience**: Khona & Fiete (2022), Vyas et al. (2020), Wang (2001)
 
----
-
-## Key Papers Referenced
-
-### RNN Interpretability
-- **Sussillo & Barak (2013)**: "Opening the black box" - Fixed-point finding methodology
-- **Maheswaranathan et al. (2019)**: Line attractors in sentiment RNNs
-- **Jordan et al. (2019)**: GRUs as continuous-time dynamical systems
-- **Lambrechts et al. (2022)**: Mutual information in POMDPs
-
-### Game-Playing RNNs
-- **Lei et al. (2024)**: STRIL - Strategy representation for Connect Four
-- **Ni et al. (2022)**: Recurrent RL baselines for POMDPs
-
-### Interpretability Techniques
-- **Karpathy et al. (2015)**: Visualizing and understanding RNNs
-- **Strobelt et al. (2018)**: LSTMVis - trajectory visualization
-- **Carr et al. (2021)**: Extracting verifiable FSMs from RNN policies
-
-Full citations available in each document.
+See [complete bibliography](scientific/references) for full citations with DOIs and annotations.

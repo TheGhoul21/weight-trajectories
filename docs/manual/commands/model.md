@@ -1,6 +1,10 @@
 # wt model
 
-Smoke-test the model architecture over all ablation configs.
+Overview
+- Smoke‑tests the ResNet+GRU architecture across ablation configs; prints shapes and parameter counts.
+
+How to Run
+- `./wt.sh model`
 
 Maps to: `python src/model.py`
 

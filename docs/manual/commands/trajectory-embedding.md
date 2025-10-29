@@ -20,4 +20,4 @@ Writes (under `<output-dir>`)
 - `trajectory_embedding_by_gru.png` faceted by GRU size
 - `trajectory_embedding_3d.png` optional 3D projection
 
-Explainers: [Metric-space trajectory embeddings](../plots/trajectory_metric_space.md)
+Explainers: [Metric-space trajectory embeddings](manual/plots/trajectory_metric_space)
