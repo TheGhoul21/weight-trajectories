@@ -100,6 +100,7 @@ cmd_train_all() {
   local epochs="${WT_EPOCHS:-100}"
   local save_every="${WT_SAVE_EVERY:-10}"
   local kernel_size="${WT_KERNEL_SIZE:-3}"
+  local seed="${WT_SEED:-37}"
   local extra_args=()
 
   while [[ $# -gt 0 ]]; do
@@ -118,6 +119,10 @@ cmd_train_all() {
         ;;
       --kernel-size)
         kernel_size="$2"
+        shift 2
+        ;;
+      --seed)
+        seed="$2"
         shift 2
         ;;
       --)
@@ -154,6 +159,7 @@ cmd_train_all() {
       --epochs "${epochs}" \
       --save-every "${save_every}" \
       --batch-size "${batch_size}" \
+      --seed "${seed}" \
       "${extra_args[@]}"
   done
 }
