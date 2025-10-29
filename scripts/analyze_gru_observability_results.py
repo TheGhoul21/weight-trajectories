@@ -18,6 +18,7 @@ import math
 from pathlib import Path
 import os
 from typing import Dict, Iterable, List, Tuple
+import time
 
 _DEFAULT_MPL_DIR = Path("diagnostics/mpl_cache").resolve()
 os.environ.setdefault("MPLCONFIGDIR", str(_DEFAULT_MPL_DIR))
@@ -30,6 +31,8 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from sklearn.linear_model import LogisticRegression
+from sklearn.exceptions import ConvergenceWarning
+import warnings
 from sklearn.metrics import accuracy_score, f1_score
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
@@ -120,6 +123,12 @@ def parse_args() -> argparse.Namespace:
         "--skip-probing",
         action="store_true",
         help="Skip logistic regression probing.",
+    )
+    parser.add_argument(
+        "--progress-interval",
+        type=int,
+        default=20,
+        help="Print progress every N fits/steps (>=1).",
     )
     return parser.parse_args()
 
@@ -315,6 +324,7 @@ def plot_phate_embeddings(
 
     models = sorted(p for p in analysis_dir.iterdir() if p.is_dir())
     for epoch in epochs:
+        print(f"[Embed] PHATE embeddings for epoch {epoch} (feature='{feature_name}')", flush=True)
         fig, axes = plt.subplots(3, 3, figsize=(15, 14))
         for ax in axes.flat:
             ax.axis("off")
@@ -379,6 +389,7 @@ def plot_phate_embeddings(
         fig.tight_layout(rect=[0, 0, 1, 0.97])
         fig.savefig(output_path, dpi=300)
         plt.close(fig)
+        print(f"[Embed] Saved {output_path}", flush=True)
 
 
 def prepare_targets(values: np.ndarray, feature_name: str) -> np.ndarray | None:
@@ -403,6 +414,7 @@ def run_probes(
     components: Iterable[str],
     max_samples: int,
     rng: np.random.Generator,
+    progress_interval: int = 20,
 ) -> None:
     component_rows: Dict[str, List[Dict[str, object]]] = {}
 
@@ -421,9 +433,21 @@ def run_probes(
 
     missing_reported: set[Tuple[str, str]] = set()
 
-    for model_dir in sorted(p for p in analysis_dir.iterdir() if p.is_dir()):
+    # Progress bookkeeping
+    model_dirs = sorted(p for p in analysis_dir.iterdir() if p.is_dir())
+    # Each (model, epoch, component, feature) performs two fits: real and control
+    total_estimated = max(1, 2 * len(model_dirs) * len(list(epochs)) * len(component_sequence) * len(list(feature_names)))
+    completed = 0
+    t0 = time.time()
+
+    progress_interval = max(1, int(progress_interval))
+    print(f"[Probes] Starting logistic regression probes: up to ~{total_estimated} fits (including controls); interval={progress_interval}", flush=True)
+
+    for model_dir in model_dirs:
         model_meta = parse_model_name(model_dir.name)
+        print(f"[Probes] Model: {model_dir.name}", flush=True)
         for epoch in epochs:
+            epoch_t0 = time.time()
             try:
                 arrays, features, feat_names, missing = load_sample_components(
                     model_dir, epoch, max_samples, rng, keys=requested_keys
@@ -472,6 +496,18 @@ def run_probes(
                     X_train_scaled = scaler.fit_transform(X_train)
                     X_test_scaled = scaler.transform(X_test)
 
+                    # Progress update before training
+                    completed += 1
+                    elapsed = time.time() - t0
+                    avg = elapsed / max(1, completed)
+                    remaining = max(0, total_estimated - completed)
+                    eta_min = (remaining * avg) / 60.0
+                    if completed <= progress_interval or completed % progress_interval == 0:
+                        print(
+                        f"[Probes] {completed}/{total_estimated} | {model_dir.name} | epoch={epoch} | component={component} | feature={feature} | ETA~{eta_min:.1f}m",
+                        flush=True,
+                        )
+
                     # Real probe with increased iterations and L2 regularization
                     clf = LogisticRegression(
                         max_iter=5000,
@@ -480,7 +516,26 @@ def run_probes(
                         random_state=0,
                         tol=1e-4
                     )
-                    clf.fit(X_train_scaled, y_train)
+                    try:
+                        with warnings.catch_warnings():
+                            warnings.filterwarnings("ignore", category=ConvergenceWarning)
+                            clf.fit(X_train_scaled, y_train)
+                    except Exception as e:
+                        # Fallback solver for tough cases
+                        try:
+                            clf = LogisticRegression(
+                                max_iter=10000,
+                                solver='liblinear',
+                                C=1.0,
+                                random_state=0,
+                                tol=1e-4,
+                            )
+                            with warnings.catch_warnings():
+                                warnings.filterwarnings("ignore", category=ConvergenceWarning)
+                                clf.fit(X_train_scaled, y_train)
+                        except Exception as e2:
+                            print(f"[Probes] Skipping probe due to error: {e2}")
+                            continue
                     y_pred = clf.predict(X_test_scaled)
                     acc = accuracy_score(y_test, y_pred)
                     f1 = f1_score(y_test, y_pred, average="binary")
@@ -495,9 +550,37 @@ def run_probes(
                         random_state=0,
                         tol=1e-4
                     )
-                    clf_control.fit(X_train_scaled, y_train_permuted)
+                    try:
+                        with warnings.catch_warnings():
+                            warnings.filterwarnings("ignore", category=ConvergenceWarning)
+                            clf_control.fit(X_train_scaled, y_train_permuted)
+                    except Exception:
+                        try:
+                            clf_control = LogisticRegression(
+                                max_iter=10000,
+                                solver='liblinear',
+                                C=1.0,
+                                random_state=0,
+                                tol=1e-4,
+                            )
+                            with warnings.catch_warnings():
+                                warnings.filterwarnings("ignore", category=ConvergenceWarning)
+                                clf_control.fit(X_train_scaled, y_train_permuted)
+                        except Exception as e3:
+                            print(f"[Probes] Skipping control probe due to error: {e3}")
+                            continue
                     y_pred_control = clf_control.predict(X_test_scaled)
                     acc_control = accuracy_score(y_test_permuted, y_pred_control)
+                    completed += 1
+                    if completed % progress_interval == 0:
+                        elapsed = time.time() - t0
+                        avg = elapsed / max(1, completed)
+                        remaining = max(0, total_estimated - completed)
+                        eta_min = (remaining * avg) / 60.0
+                        print(
+                            f"[Probes] control {completed}/{total_estimated} | {model_dir.name} | epoch={epoch} | component={component} | feature={feature} | ETA~{eta_min:.1f}m",
+                            flush=True,
+                        )
 
                     row = {
                         "model": model_dir.name,
@@ -512,6 +595,10 @@ def run_probes(
                     row.update(model_meta)
                     component_rows.setdefault(component, []).append(row)
 
+            # Model-epoch summary
+            epoch_elapsed = time.time() - epoch_t0
+            print(f"[Probes] Completed {model_dir.name} epoch {epoch} in {epoch_elapsed:.1f}s", flush=True)
+
     if not component_rows:
         print("No probe results computed.")
         return
@@ -525,6 +612,7 @@ def run_probes(
         component_dir = output_dir / component if use_subdir else output_dir
         component_dir.mkdir(parents=True, exist_ok=True)
         df.to_csv(component_dir / "probe_results.csv", index=False)
+        print(f"[Probes] Wrote results for component={component} to {component_dir / 'probe_results.csv'}", flush=True)
 
         # Plot 1: Regular accuracy
         plt.figure(figsize=(10, 6))
@@ -609,6 +697,23 @@ def main() -> None:
 
     rng = np.random.default_rng(args.seed)
 
+    # Configuration summary
+    print("[Analyze] Config:")
+    print(f"  analysis-dir      = {analysis_dir}")
+    print(f"  output-dir        = {output_dir}")
+    print(f"  embedding-epochs  = {args.embedding_epochs}")
+    print(f"  embedding-feature = {args.embedding_feature}")
+    print(f"  probe-epochs      = {args.probe_epochs}")
+    print(f"  probe-features    = {args.probe_features}")
+    print(f"  probe-components  = {args.probe_components}")
+    print(f"  max-hidden-samples= {args.max_hidden_samples}")
+    print(f"  seed              = {args.seed}")
+    print(f"  palette           = {args.palette}")
+    print(f"  skip-embedding    = {args.skip_embedding}")
+    print(f"  skip-probing      = {args.skip_probing}")
+    print(f"  progress-interval = {args.progress_interval}")
+    print(f"  workers           = {args.workers}")
+
     metrics_df = load_metrics_table(analysis_dir)
 
     plot_gate_trajectories(metrics_df, output_dir, palette=args.palette)
@@ -631,6 +736,8 @@ def main() -> None:
             components=args.probe_components,
             max_samples=args.max_hidden_samples,
             rng=rng,
+            progress_interval=args.progress_interval,
+            workers=args.workers,
         )
 
     summary_path = output_dir / "metrics_summary.json"

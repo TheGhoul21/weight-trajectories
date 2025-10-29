@@ -22,6 +22,7 @@ import random
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
+import time
 
 import numpy as np
 import torch
@@ -128,6 +129,17 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=0,
         help="Random seed for reproducible sampling.",
+    )
+    parser.add_argument(
+        "--progress-interval",
+        type=int,
+        default=10,
+        help="Print progress every N checkpoints per model (>=1).",
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Reduce console output (model-level summaries only).",
     )
     parser.add_argument(
         "--verbose",
@@ -507,12 +519,36 @@ def main() -> None:
     games = load_dataset(dataset_path, args.max_games)
     feature_names_sorted = sorted(compute_board_features(games[0]["states"][0], 0).keys())
 
-    device = torch.device(args.device)
+    # Device selection with fallback
+    req_device = str(args.device).lower()
+    if req_device.startswith("cuda") and not torch.cuda.is_available():
+        print("[Extract] CUDA requested but not available; falling back to CPU")
+        device = torch.device("cpu")
+    else:
+        device = torch.device(args.device)
 
-    for model_dir in list_model_dirs(base_dir):
+    model_dirs = list_model_dirs(base_dir)
+    # Configuration summary
+    print("[Extract] Config:")
+    print(f"  checkpoint-dir    = {base_dir}")
+    print(f"  dataset           = {dataset_path}")
+    print(f"  max-games         = {args.max_games}")
+    print(f"  sample-hidden     = {args.sample_hidden}")
+    print(f"  device            = {device}")
+    print(f"  output-dir        = {output_dir}")
+    print(f"  seed              = {args.seed}")
+    print(f"  quiet             = {args.quiet}")
+    print(f"  verbose           = {args.verbose}")
+    # Precompute total checkpoints for ETA across all models
+    model_ckpt_counts = {m.name: len(list_checkpoints(m)) for m in model_dirs}
+    total_ckpts = sum(model_ckpt_counts.values()) or 1
+    processed_ckpts = 0
+    t0 = time.time()
+
+    for model_dir in model_dirs:
         model_name = model_dir.name
-        if args.verbose:
-            print(f"\n=== Analyzing {model_name} ===")
+        if not args.quiet:
+            print(f"\n[Extract] Model: {model_name} ({model_ckpt_counts.get(model_name, 0)} checkpoints)")
 
         checkpoints = list_checkpoints(model_dir)
         if not checkpoints:
@@ -525,9 +561,11 @@ def main() -> None:
         metrics_rows: List[Dict[str, float]] = []
         unit_rows: List[Dict[str, float]] = []
 
-        for epoch, ckpt_path in checkpoints:
-            if args.verbose:
-                print(f"  Epoch {epoch:3d}: loading {ckpt_path.name}")
+        interval = max(1, int(args.progress_interval))
+        for idx, (epoch, ckpt_path) in enumerate(checkpoints, start=1):
+            ckpt_t0 = time.time()
+            if not args.quiet and (idx <= interval or idx % interval == 0 or args.verbose):
+                print(f"[Extract]  Epoch {epoch:3d}: loading {ckpt_path.name}")
             model = load_model(ckpt_path, device)
             metrics, unit_metrics, eigen_per_unit, samples = analyze_checkpoint(
                 model, games, args.sample_hidden, device, rng
@@ -547,27 +585,52 @@ def main() -> None:
             unit_rows.extend(unit_records.values())
 
             sample_path = hidden_out_dir / f"epoch_{epoch:03d}.npz"
+            if samples:
+                payload_hidden = np.stack([s["hidden"] for s in samples], axis=0)
+                payload_cnn = np.stack([s["cnn"] for s in samples], axis=0)
+                payload_update = np.stack([s["update_gate"] for s in samples], axis=0)
+                payload_reset = np.stack([s["reset_gate"] for s in samples], axis=0)
+                payload_features = np.stack([s["features"] for s in samples], axis=0)
+                payload_steps = np.concatenate([s["step_index"] for s in samples])
+            else:
+                # Use 0×0 arrays when no samples available to avoid relying on model attributes
+                payload_hidden = np.empty((0, 0), dtype=np.float32)
+                payload_cnn = np.empty((0, 0), dtype=np.float32)
+                payload_update = np.empty((0, 0), dtype=np.float32)
+                payload_reset = np.empty((0, 0), dtype=np.float32)
+                payload_features = np.empty((0, 0), dtype=np.float32)
+                payload_steps = np.empty((0,), dtype=np.int32)
+
             sample_payload = {
-                "hidden": np.stack([s["hidden"] for s in samples], axis=0) if samples else np.empty((0, model.gru_hidden_size)),
-                "cnn": np.stack([s["cnn"] for s in samples], axis=0) if samples else np.empty((0, model.feature_size)),
-                "update_gate": np.stack([s["update_gate"] for s in samples], axis=0) if samples else np.empty((0, model.gru_hidden_size)),
-                "reset_gate": np.stack([s["reset_gate"] for s in samples], axis=0) if samples else np.empty((0, model.gru_hidden_size)),
-                "features": np.stack([s["features"] for s in samples], axis=0) if samples else np.empty((0, len(feature_names_sorted))),
+                "hidden": payload_hidden,
+                "cnn": payload_cnn,
+                "update_gate": payload_update,
+                "reset_gate": payload_reset,
+                "features": payload_features,
                 "feature_names": np.array(feature_names_sorted),
-                "step_index": np.concatenate([s["step_index"] for s in samples]) if samples else np.empty((0,), dtype=np.int32),
+                "step_index": payload_steps,
             }
             np.savez_compressed(sample_path, **sample_payload)
 
             eigen_path = model_out_dir / f"epoch_{epoch:03d}_eigenvalues.npz"
             np.savez_compressed(eigen_path, **eigen_per_unit)
 
+            # Progress & ETA
+            processed_ckpts += 1
+            elapsed = time.time() - t0
+            avg = elapsed / max(1, processed_ckpts)
+            remaining = max(0, total_ckpts - processed_ckpts)
+            eta_min = (remaining * avg) / 60.0
+            if not args.quiet and (idx <= interval or idx % interval == 0 or args.verbose):
+                print(f"[Extract]  Epoch {epoch:3d}: done in {time.time()-ckpt_t0:.1f}s | {processed_ckpts}/{total_ckpts} checkpoints | ETA~{eta_min:.1f}m")
+
         if metrics_rows:
             write_metrics_csv(model_out_dir, metrics_rows)
         if unit_rows:
             write_unit_stats(model_out_dir, unit_rows)
 
-        if args.verbose:
-            print(f"  -> Outputs written to {model_out_dir}")
+        if not args.quiet:
+            print(f"[Extract] Outputs written to {model_out_dir}")
 
 
 if __name__ == "__main__":

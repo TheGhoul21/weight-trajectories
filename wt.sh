@@ -53,30 +53,45 @@ run_wizard() {
 
 show_help() {
   cat <<'EOF'
+Weight Trajectories CLI (v1.0)
 Usage: ./wt.sh <command> [options]
 
-Common commands:
-  help                     Show this message
-  python-path              Print the Python interpreter used by wt.sh
-  dataset flat [args]      Generate flat datasets (generate_connect4_dataset.py)
-  dataset sequential [args] Generate sequential datasets
-  model                    Run src/model.py architecture smoke-test
-  train [args]             Train a single model via src/train.py
-  train-all [opts]         Train GRU sizes {8,32,128}; use --data to override dataset path
-  analyze [args]           Full trajectory analysis wizard
-  metrics [args]           compute_checkpoint_metrics.py pass-through
-  cka [args]               Run compute_cka_similarity.py (non-interactive)
-  cka wizard               Launch interactive CKA wizard
-  embeddings [args]        Analyze weight embeddings
-  trajectory-embedding     Create UMAP-style trajectory plots
-  observability [subcmd]   GRU observability pipeline (extract|analyze)
-  visualize [args]         Run visualization suite (run_visualization_suite.py)
-  factorial [args]         Generate factorial heatmaps across architecture sweep
-  report [args]            Generate markdown/LaTeX report (generate_report.py)
-  onnx [args]              Export a trained model to ONNX
+Basics
+  help                       Show this message
+  python-path                Print the Python interpreter used by wt.sh
 
-Run './wt.sh <command> --help' to view the underlying script arguments.
-Set PYTHON_BIN to override the interpreter used by all commands.
+Data & Training
+  dataset flat|sequential    Generate datasets (AlphaZero-based)
+  train [args]               Train a single ResNet+GRU model
+  train-all [args]           Train 3× GRU sizes across channels
+  model                      Architecture smoke-test
+
+Analysis & Plots
+  metrics [args]             Compute checkpoint metrics (CSV)
+  visualize [args]           Unified visualization suite
+  trajectory-embedding       Metric-space trajectory plots (UMAP/t-SNE/PHATE)
+  embeddings [args]          Weight/representation embeddings
+  factorial [args]           Factorial heatmaps (3×3 sweep)
+
+GRU Observability
+  observability extract      Collect gates, timescales, hidden samples
+  observability analyze      Gates, PHATE, probes; runs MI afterwards
+  observability mi           Run mutual information analysis only
+  observability fixed        Fixed-point finding
+  observability evolve       Attractor evolution visualization
+
+Cross-Model Similarity
+  cka [args]                 CKA similarity (non-interactive)
+  cka wizard                 Interactive CKA runner
+
+Export & Reports
+  report [args]              Generate markdown analysis report
+  onnx [args]                Export model to ONNX
+
+Tips
+  - Run './wt.sh <command> --help' for script-specific options
+  - Set PYTHON_BIN to override the interpreter used by all commands
+  - See docs: manual/commands for details and examples
 EOF
 }
 

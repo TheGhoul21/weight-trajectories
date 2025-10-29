@@ -12,6 +12,9 @@ import argparse
 import json
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
+import os
+import concurrent.futures as cf
+import time
 
 import numpy as np
 import pandas as pd
@@ -77,6 +80,18 @@ def parse_args() -> argparse.Namespace:
         "--output-dir",
         default="visualizations/gru_observability",
         help="Directory where CSV and figures will be written.",
+    )
+    parser.add_argument(
+        "--progress-interval",
+        type=int,
+        default=20,
+        help="Print progress every N computations (>=1).",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=max(1, min(4, (os.cpu_count() or 2))),
+        help="Number of parallel workers for MI tasks (>=1).",
     )
     args, _ = parser.parse_known_args()
     return args
@@ -175,19 +190,23 @@ def compute_mutual_info(
     feature_name: str,
 ) -> Tuple[float, str]:
     """Compute mean MI across all dimensions."""
-    if feature_name in CLASSIFICATION_FEATURES:
-        y = feature_values.astype(int)
-        classes = np.unique(y)
-        if classes.size < 2:
-            return float("nan"), "classification"
-        mi = mutual_info_classif(hidden, y, random_state=0)
-        return float(mi.mean()), "classification"
-    else:
-        y = feature_values.astype(float)
-        if np.allclose(y, y[0]):
-            return float("nan"), "regression"
-        mi = mutual_info_regression(hidden, y, random_state=0)
-        return float(mi.mean()), "regression"
+    try:
+        if feature_name in CLASSIFICATION_FEATURES:
+            y = feature_values.astype(int)
+            classes = np.unique(y)
+            if classes.size < 2:
+                return float("nan"), "classification"
+            mi = mutual_info_classif(hidden, y, random_state=0)
+            return float(mi.mean()), "classification"
+        else:
+            y = feature_values.astype(float)
+            if np.allclose(y, y[0]):
+                return float("nan"), "regression"
+            mi = mutual_info_regression(hidden, y, random_state=0)
+            return float(mi.mean()), "regression"
+    except Exception as e:
+        print(f"[MI] Error computing MI for feature '{feature_name}': {e}")
+        return float("nan"), ("classification" if feature_name in CLASSIFICATION_FEATURES else "regression")
 
 
 def compute_per_dimension_mi(
@@ -202,19 +221,23 @@ def compute_per_dimension_mi(
         mi_per_dim: Array of shape (hidden_size,) with MI for each dimension
         mi_type: "classification" or "regression"
     """
-    if feature_name in CLASSIFICATION_FEATURES:
-        y = feature_values.astype(int)
-        classes = np.unique(y)
-        if classes.size < 2:
-            return np.full(hidden.shape[1], np.nan), "classification"
-        mi = mutual_info_classif(hidden, y, random_state=0)
-        return mi, "classification"
-    else:
-        y = feature_values.astype(float)
-        if np.allclose(y, y[0]):
-            return np.full(hidden.shape[1], np.nan), "regression"
-        mi = mutual_info_regression(hidden, y, random_state=0)
-        return mi, "regression"
+    try:
+        if feature_name in CLASSIFICATION_FEATURES:
+            y = feature_values.astype(int)
+            classes = np.unique(y)
+            if classes.size < 2:
+                return np.full(hidden.shape[1], np.nan), "classification"
+            mi = mutual_info_classif(hidden, y, random_state=0)
+            return mi, "classification"
+        else:
+            y = feature_values.astype(float)
+            if np.allclose(y, y[0]):
+                return np.full(hidden.shape[1], np.nan), "regression"
+            mi = mutual_info_regression(hidden, y, random_state=0)
+            return mi, "regression"
+    except Exception as e:
+        print(f"[MI] Error computing per-dim MI for feature '{feature_name}': {e}")
+        return np.full(hidden.shape[1], np.nan), ("classification" if feature_name in CLASSIFICATION_FEATURES else "regression")
 
 
 def plot_final_epoch_heatmap(df: pd.DataFrame, output_path: Path) -> None:
@@ -467,9 +490,32 @@ def main() -> None:
     hidden_samples_data: Dict[str, Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]]] = {}  # model -> feature -> (hidden, feature_vals, mi_per_dim)
     model_final_epochs: Dict[str, int] = {}  # Track final epoch per model
 
-    for model_dir in sorted(p for p in analysis_dir.iterdir() if p.is_dir()):
+    # Precompute task counts for progress/ETA
+    model_dirs = sorted(p for p in analysis_dir.iterdir() if p.is_dir())
+    per_model_files: Dict[str, List[Tuple[int, Path]]] = {}
+    for m in model_dirs:
+        per_model_files[m.name] = list_hidden_files(m)
+    features = list(args.features)
+    total_primary = sum(len(per_model_files[m]) * len(features) for m in per_model_files)
+    # Per-dimension MI only at final epoch per model
+    total_perdim = len(per_model_files) * len(features)
+    total_tasks = max(1, total_primary + total_perdim)
+    done = 0
+    t0 = time.time()
+    interval = max(1, int(args.progress_interval))
+    print("[MI] Config:")
+    print(f"  analysis-dir      = {analysis_dir}")
+    print(f"  output-dir        = {output_dir}")
+    print(f"  features          = {features}")
+    print(f"  max-samples       = {args.max_samples}")
+    print(f"  seed              = {args.seed}")
+    print(f"  progress-interval = {interval}")
+    print(f"  workers           = {args.workers}")
+    print(f"[MI] Starting mutual information analysis: ~{total_tasks} computations (including per-dimension at final epoch)...", flush=True)
+
+    for model_dir in model_dirs:
         model_meta = parse_model_name(model_dir.name)
-        hidden_files = list_hidden_files(model_dir)
+        hidden_files = per_model_files.get(model_dir.name, [])
         if not hidden_files:
             continue
 
@@ -483,38 +529,53 @@ def main() -> None:
             name_to_idx = {name: idx for idx, name in enumerate(feature_names)}
 
             is_final_epoch = (epoch == model_final_epochs[model_dir.name])
+            # Parallelize MI across features for this (model, epoch)
+            with cf.ThreadPoolExecutor(max_workers=args.workers) as executor:
+                futures = {}
+                for feature in args.features:
+                    if feature not in name_to_idx:
+                        continue
+                    values = features[:, name_to_idx[feature]]
+                    futures[executor.submit(compute_mutual_info, hidden, values, feature)] = (feature, values)
 
-            for feature in args.features:
-                if feature not in name_to_idx:
-                    continue
-                values = features[:, name_to_idx[feature]]
+                for fut in cf.as_completed(futures):
+                    feature, values = futures[fut]
+                    mi, mi_type = fut.result()
+                    rows.append(
+                        {
+                            "model": model_dir.name,
+                            "epoch": epoch,
+                            "feature": feature,
+                            "mi": mi,
+                            "type": mi_type,
+                            **model_meta,
+                        }
+                    )
+                    # Progress update
+                    done += 1
+                    elapsed = time.time() - t0
+                    avg = elapsed / max(1, done)
+                    remaining = max(0, total_tasks - done)
+                    eta_min = (remaining * avg) / 60.0
+                    if done <= interval or done % interval == 0:
+                        print(f"[MI] {done}/{total_tasks} | {model_dir.name} | epoch={epoch} | feature={feature} | ETA~{eta_min:.1f}m", flush=True)
 
-                # Compute mean MI (existing)
-                mi, mi_type = compute_mutual_info(hidden, values, feature)
-                rows.append(
-                    {
-                        "model": model_dir.name,
-                        "epoch": epoch,
-                        "feature": feature,
-                        "mi": mi,
-                        "type": mi_type,
-                        **model_meta,
-                    }
-                )
-
-                # For final epoch, also compute per-dimension MI
-                if is_final_epoch:
-                    mi_per_dim, _ = compute_per_dimension_mi(hidden, values, feature)
-
-                    # Store per-dimension MI
-                    if model_dir.name not in per_dim_mi_data:
-                        per_dim_mi_data[model_dir.name] = {}
-                    per_dim_mi_data[model_dir.name][feature] = mi_per_dim
-
-                    # Store hidden samples for value plotting
-                    if model_dir.name not in hidden_samples_data:
-                        hidden_samples_data[model_dir.name] = {}
-                    hidden_samples_data[model_dir.name][feature] = (hidden, values, mi_per_dim)
+                    if is_final_epoch:
+                        # Per-dimension MI (can also be parallelized, but compute inline to avoid memory blowup)
+                        mi_per_dim, _ = compute_per_dimension_mi(hidden, values, feature)
+                        if model_dir.name not in per_dim_mi_data:
+                            per_dim_mi_data[model_dir.name] = {}
+                        per_dim_mi_data[model_dir.name][feature] = mi_per_dim
+                        if model_dir.name not in hidden_samples_data:
+                            hidden_samples_data[model_dir.name] = {}
+                        hidden_samples_data[model_dir.name][feature] = (hidden, values, mi_per_dim)
+                        done += 1
+                        elapsed = time.time() - t0
+                        avg = elapsed / max(1, done)
+                        remaining = max(0, total_tasks - done)
+                        eta_min = (remaining * avg) / 60.0
+                        if done % interval == 0:
+                            print(f"[MI] per-dim {done}/{total_tasks} | {model_dir.name} | epoch={epoch} | feature={feature} | ETA~{eta_min:.1f}m", flush=True)
 
     if not rows:
         print("No mutual information results computed.")
