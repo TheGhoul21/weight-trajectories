@@ -29,10 +29,11 @@ Key options and defaults
 - --value-weight [float, default 1.0]
 - --save-every [int, default 10]
 - --checkpoint-dir [path, default checkpoints]
+- --seed [int, default 0] reproducible initialization/split seed
 
 Training behavior
 - Splits dataset 90/10 into train/val; supports sequential batching with padding.
-- Tracks losses per epoch; saves weights at intervals and at the end; best_model.pt updated on improved val loss.
+- Tracks losses per epoch; saves weights at intervals and at the end; best_model.pt updated on improved val loss. Each run is seeded deterministically (history JSON records the exact seed).
 
 Artifacts used by other tools
 - Checkpoint weights → metrics, embeddings, CKA, observability, fixed-point analyses.

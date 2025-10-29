@@ -51,7 +51,10 @@ Complete workflow for analyzing GRU internal representations and dynamics in Con
 
 **Representation Geometry:**
 - `phate_epoch_XXX_<feature>.png` — 2D embeddings of hidden states (3×3 grid per epoch)
-- `probe_results.csv` + `probe_accuracy.png` — logistic probe performance
+- `probe_results.csv` + `probe_accuracy.png` — GRU logistic probe performance with control task validation
+- `probe_signal_over_control.png` — Signal strength above chance (real - control accuracy)
+- `probe_comparison.png` — Side-by-side real vs control task accuracy
+- (CNN probes, when enabled via `--probe-components cnn`, write under `cnn/`)
 
 **Mutual Information:**
 - `mi_results.csv` — mean MI per model/epoch/feature

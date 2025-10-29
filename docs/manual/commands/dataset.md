@@ -21,6 +21,7 @@ Options (flat)
 - --cpus [int, default 4]
 - --test-run [flag] generate ~20–100 mini set
 - --save-numpy [flag] also save .npz
+- --seed [int, default 0] reproducible self-play seed
 
 Output schema (flat)
 - `.pt` dict with:
@@ -35,6 +36,7 @@ Options (sequential)
 - --output [path, default data/connect4_sequential_1k_games.pt]
 - --cpus [int, default 4]
 - --test-run [flag] (~20 games)
+- --seed [int, default 0] reproducible gameplay seed
 
 Output schema (sequential)
 - `.pt` dict with:
@@ -44,8 +46,8 @@ Output schema (sequential)
       - policies (T, 7)
       - values (T, 1)
   - metadata dict: generation_time_seconds, counts, win stats, etc.
-- Sidecar JSON: same stats for easy inspection.
+- Sidecar JSON: same stats for easy inspection (includes `seed`).
 
 Notes
 - Sequential format is required for GRU training and downstream observability analyses.
-- Both generators subsample or augment safely and print expected run stats.
+- Both generators subsample or augment safely and print expected run stats; seeds ensure repeated runs yield identical datasets.

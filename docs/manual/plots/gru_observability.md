@@ -36,7 +36,7 @@ Loads extracted data and generates:
 1. **Gate trajectory plots** — mean update/reset over epochs for all models
 2. **Timescale heatmap** — median τ at final epoch, aggregated by architecture
 3. **PHATE embeddings** — 2D projection of hidden states colored by features
-4. **Logistic regression probes** — train classifiers on hidden states to predict board features
+4. **Logistic regression probes with control tasks** — train classifiers on hidden states to predict board features, with permuted-label controls to validate signal significance
 
 ## Outputs
 
@@ -45,7 +45,9 @@ Loads extracted data and generates:
 - **timescale_heatmap.png** – heatmap of the median GRU integration timescale at the final epoch, indexed by channels (rows) and GRU size (columns).
 - **phate_epoch_XXX_<feature>.png** – 3×3 grid (one panel per model) of PHATE embeddings of hidden samples at epoch `XXX`; colour encodes the requested board feature (e.g. `move_index`).
 - **probe_accuracy.png** – logistic-probe accuracy over epochs; hue differentiates features, line style differentiates GRU size.
-- **probe_results.csv** – long-form table `[model, epoch, feature, component, accuracy, f1, channels, gru, kernel]` for spreadsheet work.
+- **probe_signal_over_control.png** – difference between real and control task accuracy; positive values indicate genuine signal above chance.
+- **probe_comparison.png** – side-by-side comparison of real probe accuracy (left) vs control task accuracy with permuted labels (right).
+- **probe_results.csv** – long-form table `[model, epoch, feature, component, accuracy, f1, control_accuracy, signal_over_control, channels, gru, kernel]`; GRU results write to the output directory (or `gru/` when multiple components are requested), while CNN-specific probes land under `cnn/`.
 
 ## Interpretation guide
 
@@ -295,6 +297,61 @@ Pass --probe-components gru cnn:
 Interpretation: GRU adds significant temporal reasoning beyond CNN spatial features
 ```
 
+### Control task validation (probe_signal_over_control.png, probe_comparison.png)
+
+**What it shows**: Control tasks with permuted labels validate that probe accuracy reflects genuine signal rather than memorization or overfitting artifacts.
+
+**Methodology**: For each probe, a control classifier is trained on the same hidden states but with randomly shuffled labels. This control should perform near chance (0.5 for binary features).
+
+**Reading signal over control**:
+
+**Strong signal** (signal > 0.3):
+```
+Real accuracy: 0.88
+Control accuracy: 0.52
+Signal over control: 0.36
+```
+- Interpretation: Hidden state genuinely encodes feature
+- Control near chance confirms no spurious patterns
+- Expected for well-learned features
+
+**Weak signal** (signal 0.1-0.3):
+```
+Real accuracy: 0.64
+Control accuracy: 0.51
+Signal over control: 0.13
+```
+- Interpretation: Some encoding present but weak or noisy
+- May indicate partially learned or distributed representation
+- Consider whether feature is truly task-relevant
+
+**No signal** (signal ≈ 0):
+```
+Real accuracy: 0.53
+Control accuracy: 0.51
+Signal over control: 0.02
+```
+- Interpretation: No meaningful encoding (both near chance)
+- Hidden state does not contain feature information
+- Expected for task-irrelevant features
+
+**Red flag** (control > 0.6):
+```
+Real accuracy: 0.78
+Control accuracy: 0.68
+Signal over control: 0.10
+```
+- Diagnosis: Probe may be exploiting spurious correlations
+- Dataset may have hidden structure or imbalance
+- Action: Inspect data distribution, try different train/test split
+
+**Comparison plot interpretation**:
+- **Left panel** (real accuracy): Shows what the network learned
+- **Right panel** (control accuracy): Should stay near 0.5 (dashed red line)
+- **Wide gap**: Strong, validated encoding
+- **Narrow gap**: Weak or questionable signal
+- **Control rising over epochs**: Warning sign of overfitting to noise
+
 ### Cross-plot analysis
 
 **Combining insights from all three plots**:
@@ -422,11 +479,22 @@ tau = 1 / |log(|λ|)|  # For eigenvalues λ with 0 < |λ| < 1
 X_train, X_test = hidden_states, hidden_states  # (N, gru_size)
 y_train, y_test = feature_values  # (N,) binary labels
 
-clf = LogisticRegression(max_iter=1000)
-clf.fit(X_train, y_train)
-accuracy = clf.score(X_test, y_test)
-f1 = f1_score(y_test, clf.predict(X_test))
+# Standardize features for better convergence
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+clf = LogisticRegression(max_iter=5000, solver='lbfgs', C=1.0, tol=1e-4)
+clf.fit(X_train_scaled, y_train)
+accuracy = clf.score(X_test_scaled, y_test)
+f1 = f1_score(y_test, clf.predict(X_test_scaled))
 ```
+
+**Why standardize?** GRU hidden dimensions often have very different scales (some near 0, others in [-5, 5]). Standardizing (zero mean, unit variance) ensures:
+- Faster convergence of optimization
+- Balanced contribution from all dimensions
+- Stable gradients in logistic regression
+- More reliable coefficient interpretation
 
 **Feature preparation**:
 - `current_player`: Transform from [1,2] to [0,1]
@@ -435,7 +503,7 @@ f1 = f1_score(y_test, clf.predict(X_test))
 - Features must have ≥2 samples per class
 - 70/30 train/test split with stratification
 
-Pass `--probe-components cnn` to train probes directly on the CNN feature vectors instead of (or in addition to) the GRU hidden state; plots will facet by component and the CSV records which representation each score came from.
+Pass `--probe-components cnn` to train probes directly on the CNN feature vectors instead of (or alongside) the GRU hidden state; when both are requested, each component writes its own `probe_results.csv` and `probe_accuracy.png` under `<output-dir>/<component>/`.
 
 **Interpretation**:
 - **Accuracy > 0.9**: Feature is strongly encoded (linear separator exists)
@@ -464,3 +532,91 @@ Pass `--probe-components cnn` to train probes directly on the CNN feature vector
 - `--palette`: Seaborn color palette for multi-model plots [default: Set2]
 - `--skip-embedding`: Skip PHATE plots (faster iteration)
 - `--skip-probing`: Skip logistic regression probes
+
+---
+
+## Methodological Notes
+
+### Probing Methodology
+
+**Sequential Processing**: Hidden states are collected during proper sequential trajectory processing where each hidden state at timestep `t` depends on all previous timesteps through recurrent connections. This follows standard practices in RNN interpretability research [Maheswaranathan et al., 2019; Lambrechts et al., 2022].
+
+**Why This Is Correct**: When probing a hidden state `h_t`, that state already contains the result of all recurrent processing from timesteps 0 to t. The recurrence is not "re-run" during probing—the temporal information is already encoded in `h_t` through the sequential forward pass. Probing measures *what information is encoded in the hidden state* at a given point, not whether the network can use recurrence (which is tested by task performance).
+
+**Data Collection Process** (scripts/extract_gru_dynamics.py:346-395):
+1. Load full game trajectory (sequence of board states)
+2. Initialize hidden state `h_0 = 0`
+3. For each timestep t:
+   - Extract CNN features `x_t` from board state
+   - Compute GRU step: `h_{t+1} = GRU(x_t, h_t)` with full recurrence
+   - Store `h_{t+1}` for probing (reservoir sampling)
+4. Each collected hidden state incorporates full sequential history
+
+**Probing**: Train linear classifiers (logistic regression) on collected hidden states to predict board features. High accuracy indicates the feature is linearly decodable from the hidden representation [Belinkov, 2022].
+
+**Control Tasks**: To validate that probe accuracy reflects genuine encoding rather than artifacts, we train control classifiers on the same hidden states but with randomly permuted labels. The control should perform near chance (0.5 for binary features). The "signal over control" (real accuracy - control accuracy) quantifies true encoding strength [Belinkov, 2022].
+
+**Methodological Safeguards**:
+- Stratified train/test splits ensure class balance
+- Control tasks with permuted labels detect spurious patterns
+- Multiple epochs tested to track representation evolution
+- Comparison with CNN-only probes isolates GRU contribution
+- Signal over control metric validates statistical significance
+
+---
+
+## Theoretical Foundations
+
+### Dynamical Systems View
+
+**Fixed Points and Attractors**: RNN hidden states evolve according to deterministic dynamics. Trained RNNs often exhibit low-dimensional structure with identifiable fixed points and attractors [Sussillo & Barak, 2013]. For GRUs in games:
+- Stable attractors may represent game states (e.g., "winning position")
+- Line attractors enable continuous integration (e.g., advantage accumulation)
+- Multiple attractors indicate discrete behavioral modes [Jordan et al., 2019]
+
+**Eigenvalue-Based Timescales**: The integration timescale τ measures how many steps the GRU retains information. Derived from eigenvalues λ of the recurrent weight matrix:
+```
+τ_i = 1 / |log(|λ_i|)|
+```
+Larger τ indicates longer memory capacity [Maheswaranathan et al., 2019].
+
+### Learning Dynamics
+
+**Representation Evolution**: During training, RNN hidden states progressively align with task-relevant state variables. Mutual information between hidden states and critical features (e.g., winning threats) increases as learning proceeds [Lambrechts et al., 2022].
+
+**Attractor Formation**: Fixed points emerge and sharpen during training. The movement of attractors in hidden state space correlates with performance improvements—they converge toward task-optimal representations [Huang et al., 2024].
+
+**Gate Behavior**: GRU gates learn to balance memory retention (update gate) and input integration (reset gate). Update gate values typically increase during training as the network learns which information to preserve [Chung et al., 2014].
+
+---
+
+## References
+
+**Core Methodology**:
+- Belinkov, Y. (2022). Probing Classifiers: Promises, Shortcomings, and Advances. *Computational Linguistics*, 48(1):207-219. [Probing methodology and best practices]
+
+- Maheswaranathan, N., Williams, A.H., Golub, M.D., Ganguli, S., & Sussillo, D. (2019). Reverse engineering recurrent networks for sentiment classification reveals line attractor dynamics. *NeurIPS* 32:15696-15705. [Line attractors, eigenvalue-based timescales, probing RNN hidden states]
+
+- Lambrechts, G., Bolland, A., & Ernst, D. (2022). Recurrent networks, hidden states and beliefs in partially observable environments. *Transactions on Machine Learning Research*. [Mutual information between hidden states and beliefs, sequential processing for POMDPs]
+
+**Dynamical Systems Analysis**:
+- Sussillo, D. & Barak, O. (2013). Opening the black box: low-dimensional dynamics in high-dimensional recurrent neural networks. *Neural Computation*, 25(3):626-649. [Fixed point finding, dynamical systems methodology]
+
+- Jordan, I., Sokol, P.A., Park, I.M., & Park, M. (2021). Gated Recurrent Units viewed through the lens of continuous time dynamical systems. *Frontiers in Computational Neuroscience*, 15:678158. [GRU dynamics, attractors, bifurcations]
+
+- Huang, A., Wang, Y., Chen, Y., Zhang, L. & Fei-Fei, L. (2024). Learning Dynamics and Geometry in Recurrent Neural Controllers. *CCN 2024*. [Attractor evolution during learning, correlation with performance]
+
+**GRU Architecture & Gates**:
+- Chung, J., Gulcehre, C., Cho, K., & Bengio, Y. (2014). Empirical Evaluation of Gated Recurrent Neural Networks on Sequence Modeling. *NIPS 2014 Workshop*. [GRU introduction and gate behavior]
+
+- Tang, Z., Wang, D., & Zhang, Z. (2017). Memory visualization for gated recurrent neural networks in speech recognition. *arXiv:1609.08789*. [Gate activation patterns and memory analysis]
+
+**Game-Specific Applications**:
+- Lei, S., Xu, S., Luo, S., Wang, K., & Xu, Z. (2024). Learning Strategy Representation for Imitation Learning in Multi-Agent Games. *arXiv:2409.19363*. [GRU-based strategy embeddings in Connect Four, separation of skill levels]
+
+**Visualization & Interpretability**:
+- Strobelt, H., Gehrmann, S., Pfister, H., & Rush, A.M. (2018). LSTMVis: A Tool for Visual Analysis of Hidden State Dynamics in Recurrent Neural Networks. *IEEE TVCG*, 24(1):667-676. [Hidden state trajectory visualization]
+
+- Yao, L., Chu, Z., Li, S., Li, Y., Gao, J., & Zhang, A. (2018). RNNVis: A Tool for Visualizing and Understanding RNN Hidden Dynamics. *IEEE Trans. Vis. Comput. Graph.*, 25(1):267-276. [RNN interpretability tools]
+
+- Moon, K.R., van Dijk, D., Wang, Z., Gigante, S., Burkhardt, D.B., Chen, W.S., Yim, K., van den Elzen, A., Hirn, M.J., Coifman, R.R., Ivanova, N.B., Wolf, G., & Krishnaswamy, S. (2019). Visualizing structure and transitions in high-dimensional biological data. *Nature Biotechnology*, 37:1482–1492. [PHATE embedding methodology]

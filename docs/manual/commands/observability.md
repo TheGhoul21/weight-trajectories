@@ -33,6 +33,7 @@ analyze (plots + linear probes)
   - --embedding-feature [default move_index]
   - --probe-epochs [list, default 30 60 100]
   - --probe-features [list, default current_player immediate_win_current immediate_win_opponent]
+  - --probe-components [list, default gru] (`gru`, `cnn`, or both)
   - --max-hidden-samples [int, default 2000]
   - --seed [int, default 0]
   - --palette [str, default Set2]
@@ -43,7 +44,7 @@ analyze (plots + linear probes)
   - gate_mean_trajectories.png
   - timescale_heatmap.png
   - phate_epoch_XXX_<feature>.png (unless skipped)
-  - probe_results.csv and probe_accuracy.png
+  - probe_results.csv and probe_accuracy.png (per requested component; CNN probes write under `cnn/`)
 
 mutual information (run within analyze)
 - `scripts/compute_hidden_mutual_info.py` is executed automatically after analyze completes
