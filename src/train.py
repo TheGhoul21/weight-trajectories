@@ -5,9 +5,11 @@ Tracks weights every N epochs for analysis
 
 import argparse
 import json
+import random
 from pathlib import Path
 from datetime import datetime
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -19,6 +21,7 @@ except ImportError:  # pragma: no cover -- optional dependency for config mode
     yaml = None
 
 from model import create_model, count_parameters
+from utils.repro import child_seed, seed_everything
 
 
 class Connect4Dataset(Dataset):
@@ -95,7 +98,7 @@ def sequential_collate_fn(batch):
     return state_tensor, policy_targets, value_targets, mask, lengths
 
 
-def create_dataloaders(data_path, batch_size, train_split=0.9):
+def create_dataloaders(data_path, batch_size, train_split=0.9, seed=0, num_workers=2):
     """Create train and validation dataloaders"""
     dataset = Connect4Dataset(data_path)
 
@@ -105,18 +108,42 @@ def create_dataloaders(data_path, batch_size, train_split=0.9):
     train_size = int(train_split * len(dataset))
     val_size = len(dataset) - train_size
 
+    split_seed = seed if seed is not None else 0
     train_dataset, val_dataset = random_split(
         dataset, [train_size, val_size],
-        generator=torch.Generator().manual_seed(42)
+        generator=torch.Generator().manual_seed(split_seed)
     )
 
+    def _make_worker_init(base_seed: int | None):
+        def _worker_init(worker_id: int) -> None:
+            if base_seed is None:
+                return
+            worker_seed = base_seed + worker_id
+            np.random.seed(worker_seed)
+            random.seed(worker_seed)
+            torch.manual_seed(worker_seed)
+        return _worker_init
+
+    train_gen = torch.Generator().manual_seed(child_seed(seed, 1) or 0)
+    val_gen = torch.Generator().manual_seed(child_seed(seed, 2) or 0)
+
     train_loader = DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, num_workers=2,
-        collate_fn=collate_fn
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        collate_fn=collate_fn,
+        worker_init_fn=_make_worker_init(child_seed(seed, 10)),
+        generator=train_gen,
     )
     val_loader = DataLoader(
-        val_dataset, batch_size=batch_size, shuffle=False, num_workers=2,
-        collate_fn=collate_fn
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        collate_fn=collate_fn,
+        worker_init_fn=_make_worker_init(child_seed(seed, 20)),
+        generator=val_gen,
     )
 
     print(f"Split: {train_size} train, {val_size} val")
@@ -378,6 +405,8 @@ def main():
     parser.add_argument("--save-every", type=int, default=10, help="Save weights every N epochs")
     parser.add_argument("--checkpoint-dir", type=str, default="checkpoints",
                         help="Directory for checkpoints")
+    parser.add_argument("--seed", type=int, default=0,
+                        help="Random seed for reproducible training (default: 0)")
 
     args = parser.parse_args()
 
@@ -483,6 +512,13 @@ def main():
             'value_weight': args.value_weight
         } for channels in args.cnn_channels]
 
+    base_seed = args.seed
+    seed_everything(base_seed)
+
+    for idx, run in enumerate(scheduled_runs):
+        run_seed = child_seed(base_seed, idx)
+        run['seed'] = run_seed if run_seed is not None else base_seed
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
@@ -506,10 +542,19 @@ def main():
         print(f"Training configuration {idx}/{total_runs} ({label}): Kernel={kernel_size}x{kernel_size}, Channels={channels}, GRU={gru_hidden}")
         print("=" * 70)
 
+        run_seed = int(run.get('seed', base_seed))
+        seed_everything(run_seed)
+        print(f"Seed: {run_seed}")
+
         model = create_model(channels, gru_hidden, kernel_size).to(device)
         print(f"Parameters: {count_parameters(model):,}")
 
-        train_loader, val_loader = create_dataloaders(data_path, batch_size)
+        loader_seed = child_seed(run_seed, 100)
+        train_loader, val_loader = create_dataloaders(
+            data_path,
+            batch_size,
+            seed=loader_seed if loader_seed is not None else run_seed,
+        )
         optimizer = optim.Adam(model.parameters(), lr=lr)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -523,6 +568,8 @@ def main():
             policy_weight=policy_weight,
             value_weight=value_weight
         )
+
+        history['seed'] = run_seed
 
         history_path = checkpoint_dir / "training_history.json"
         with open(history_path, 'w') as f:
@@ -538,7 +585,8 @@ def main():
             'cnn_channels': channels,
             'gru_hidden': gru_hidden,
             'checkpoint_dir': str(checkpoint_dir),
-            'history_path': str(history_path)
+            'history_path': str(history_path),
+            'seed': run_seed,
         })
 
     if len(results) > 1:

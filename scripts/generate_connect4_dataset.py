@@ -38,6 +38,12 @@ import torch
 import config
 from main_functions import load_or_create_neural_net, self_play
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from _repro import seed_everything
+
 
 def parse_args():
     """Parse command line arguments."""
@@ -77,6 +83,12 @@ def parse_args():
         "--save-numpy",
         action="store_true",
         help="Also save in NumPy .npz format",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="Random seed for self-play generation (default: 0)",
     )
 
     return parser.parse_args()
@@ -119,7 +131,7 @@ def raw_data_to_pytorch(raw_data):
     return states_tensor, policies_tensor, values_tensor
 
 
-def generate_dataset(num_games, simulations, cpus=None):
+def generate_dataset(num_games, simulations, cpus=None, seed=0):
     """
     Generate a high-quality dataset using self-play.
 
@@ -127,6 +139,7 @@ def generate_dataset(num_games, simulations, cpus=None):
         num_games: Total number of games to generate
         simulations: Number of MCTS simulations per move
         cpus: Number of CPUs to use (None = use config default)
+        seed: Random seed used for reproducibility
 
     Returns:
         raw_data: numpy array of game positions
@@ -165,6 +178,7 @@ def generate_dataset(num_games, simulations, cpus=None):
     print(f"  - MCTS simulations per move: {simulations}")
     print(f"  - Dirichlet noise: {config.dirichlet_for_self_play}")
     print(f"  - Data augmentation (flipping): {config.data_extension}")
+    print(f"  - Seed: {seed}")
     print(f"  - Expected positions: ~{actual_games * 21 * (2 if config.data_extension else 1)}")
 
     # Generate games
@@ -181,7 +195,8 @@ def generate_dataset(num_games, simulations, cpus=None):
         cpuct=config.CPUCT,
         tau=config.tau_self_play,
         tau_zero=config.tau_zero_self_play,
-        use_dirichlet=config.dirichlet_for_self_play
+        use_dirichlet=config.dirichlet_for_self_play,
+        seed=seed,
     )
 
     end_time = datetime.now()
@@ -203,6 +218,7 @@ def generate_dataset(num_games, simulations, cpus=None):
         'cpus_used': int(config.CPUS),
         'data_augmentation': bool(config.data_extension),
         'dirichlet_noise': bool(config.dirichlet_for_self_play),
+        'seed': int(seed),
     }
 
     print(f"\n✓ Generation complete in {duration:.1f} seconds")
@@ -251,6 +267,7 @@ def save_dataset(raw_data, stats, output_path, save_numpy=False):
     stats['generation_timestamp'] = datetime.now().isoformat()
     stats['pytorch_version'] = torch.__version__
     stats['numpy_version'] = np.__version__
+    stats.setdefault('seed', None)
 
     # Save PyTorch format
     print(f"\nSaving PyTorch dataset to: {output_path}")
@@ -302,6 +319,8 @@ def main():
             base = args.output.replace('.pt', '')
             args.output = f"{base}_test.pt"
 
+    seed_everything(args.seed, deterministic_torch=False)
+
     # Change to AlphaZero directory for data/ folder access
     original_dir = os.getcwd()
     os.chdir(ALPHAZERO_PATH)
@@ -315,7 +334,8 @@ def main():
         raw_data, stats = generate_dataset(
             num_games=args.num_games,
             simulations=args.simulations,
-            cpus=args.cpus
+            cpus=args.cpus,
+            seed=args.seed,
         )
 
         # Change back to original directory for saving

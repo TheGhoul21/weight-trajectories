@@ -186,6 +186,8 @@ def plot_loss_trajectory_grid(metrics_data, history_data, output_dir):
 def plot_representation_grid(metrics_data, output_dir):
     """Create 3x3 grid of representation evolution."""
     fig, axes = plt.subplots(3, 3, figsize=(18, 16))
+    shared_legend_handles = None
+    shared_legend_labels = None
 
     for i, channels in enumerate(CHANNELS):
         for j, gru_size in enumerate(GRU_SIZES):
@@ -199,13 +201,16 @@ def plot_representation_grid(metrics_data, output_dir):
                     col = f'repr_top{sv_idx}_ratio'
                     if col in df.columns:
                         valid = df[df[col].notna()]
-                        ax.plot(valid['epoch'], valid[col],
-                               label=f'SV{sv_idx}', marker='o', markersize=2, linewidth=1.5)
+                        line, = ax.plot(valid['epoch'], valid[col],
+                                        label=f'SV{sv_idx}', marker='o', markersize=2, linewidth=1.5)
 
                 mean_top1 = df['repr_top1_ratio'].mean() if 'repr_top1_ratio' in df.columns else np.nan
                 ax.set_title(f'{model_name}\nMean Top-1: {mean_top1:.3f}',
                             fontsize=9, fontweight='bold')
-                ax.legend(fontsize=7)
+                # Defer legends to a single shared figure-level legend
+                if shared_legend_handles is None or shared_legend_labels is None:
+                    handles, labels = ax.get_legend_handles_labels()
+                    shared_legend_handles, shared_legend_labels = handles, labels
             else:
                 ax.text(0.5, 0.5, 'No Data', ha='center', va='center', transform=ax.transAxes)
 
@@ -213,10 +218,18 @@ def plot_representation_grid(metrics_data, output_dir):
             ax.set_xlabel('Epoch', fontsize=8)
             ax.set_ylabel('Variance Ratio', fontsize=8)
 
-    plt.suptitle('Representation Collapse Analysis: Singular Value Evolution\n' +
-                 'Connect-4 as a Testbed: Analyzing Learning Trajectories in a Solved Game',
-                 fontsize=14, fontweight='bold', y=0.995)
-    plt.tight_layout()
+    # Add shared legend once for SV curves across all subplots
+    if shared_legend_handles and shared_legend_labels:
+        fig.legend(shared_legend_handles, shared_legend_labels, loc='upper center', ncol=4, frameon=False)
+        plt.suptitle('Representation Collapse Analysis: Singular Value Evolution\n' +
+                     'Connect-4 as a Testbed: Analyzing Learning Trajectories in a Solved Game',
+                     fontsize=14, fontweight='bold', y=0.995)
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
+    else:
+        plt.suptitle('Representation Collapse Analysis: Singular Value Evolution\n' +
+                     'Connect-4 as a Testbed: Analyzing Learning Trajectories in a Solved Game',
+                     fontsize=14, fontweight='bold', y=0.995)
+        plt.tight_layout()
 
     output_path = Path(output_dir) / 'representation_grid.png'
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
@@ -226,6 +239,8 @@ def plot_representation_grid(metrics_data, output_dir):
 def plot_gru_sweep_comparison(metrics_data, history_data, output_dir):
     """Compare GRU sizes for each channel count (main effect plots)."""
     fig, axes = plt.subplots(3, 3, figsize=(18, 14))
+    shared_handles = None
+    shared_labels = None
 
     for ch_idx, channels in enumerate(CHANNELS):
         # Weight norm
@@ -234,12 +249,18 @@ def plot_gru_sweep_comparison(metrics_data, history_data, output_dir):
             model_name = f'k3_c{channels}_gru{gru_size}'
             if model_name in metrics_data:
                 df = metrics_data[model_name]
-                ax.plot(df['epoch'], df['weight_norm'],
-                       label=f'GRU{gru_size}', color=GRU_COLORS[gru_size],
-                       linewidth=2, marker='o', markersize=2)
+                ax.plot(
+                    df['epoch'], df['weight_norm'],
+                    label=f'GRU{gru_size}', color=GRU_COLORS[gru_size],
+                    linewidth=2, marker='o', markersize=2
+                )
         ax.set_title(f'Weight Norm (c{channels})', fontweight='bold')
         ax.set_ylabel('Weight Norm')
-        ax.legend()
+        # Capture legend entries once (GRU sizes) for a shared legend later
+        if shared_handles is None and shared_labels is None:
+            shared_handles, shared_labels = ax.get_legend_handles_labels()
+        if ax.get_legend():
+            ax.legend_.remove()
         ax.grid(True, alpha=0.3)
 
         # Step norm
@@ -249,12 +270,15 @@ def plot_gru_sweep_comparison(metrics_data, history_data, output_dir):
             if model_name in metrics_data:
                 df = metrics_data[model_name]
                 valid = df[df['step_norm'].notna()]
-                ax.plot(valid['epoch'], valid['step_norm'],
-                       label=f'GRU{gru_size}', color=GRU_COLORS[gru_size],
-                       linewidth=2, marker='o', markersize=2)
+                ax.plot(
+                    valid['epoch'], valid['step_norm'],
+                    label=f'GRU{gru_size}', color=GRU_COLORS[gru_size],
+                    linewidth=2, marker='o', markersize=2
+                )
         ax.set_title(f'Step Norm (c{channels})', fontweight='bold')
         ax.set_ylabel('Step Norm')
-        ax.legend()
+        if ax.get_legend():
+            ax.legend_.remove()
         ax.grid(True, alpha=0.3)
 
         # Validation loss
@@ -264,25 +288,38 @@ def plot_gru_sweep_comparison(metrics_data, history_data, output_dir):
             if model_name in history_data:
                 hist = history_data[model_name]
                 epochs = np.arange(1, len(hist['val_loss']) + 1)
-                ax.plot(epochs, hist['val_loss'],
-                       label=f'GRU{gru_size}', color=GRU_COLORS[gru_size],
-                       linewidth=2)
+                ax.plot(
+                    epochs, hist['val_loss'],
+                    label=f'GRU{gru_size}', color=GRU_COLORS[gru_size],
+                    linewidth=2
+                )
                 min_idx = np.argmin(hist['val_loss'])
-                ax.scatter([min_idx + 1], [hist['val_loss'][min_idx]],
-                          color=GRU_COLORS[gru_size], s=100, zorder=5, marker='*')
+                ax.scatter(
+                    [min_idx + 1], [hist['val_loss'][min_idx]],
+                    color=GRU_COLORS[gru_size], s=100, zorder=5, marker='*'
+                )
         ax.set_title(f'Validation Loss (c{channels})', fontweight='bold')
         ax.set_ylabel('Val Loss')
-        ax.legend()
+        if ax.get_legend():
+            ax.legend_.remove()
         ax.grid(True, alpha=0.3)
 
         if ch_idx == 2:
-            for ax in axes[ch_idx, :]:
-                ax.set_xlabel('Epoch')
+            for ax_bottom in axes[ch_idx, :]:
+                ax_bottom.set_xlabel('Epoch')
 
-    plt.suptitle('GRU Size Effect: Varying RNN Capacity (Fixed Channel Count)\n' +
-                 'Connect-4 as a Testbed: Analyzing Learning Trajectories in a Solved Game',
-                 fontsize=14, fontweight='bold', y=0.995)
-    plt.tight_layout()
+    # Shared legend for GRU sizes across the figure
+    if shared_handles and shared_labels:
+        fig.legend(shared_handles, shared_labels, loc='upper center', ncol=3, frameon=False, title='GRU Size')
+        plt.suptitle('GRU Size Effect: Varying RNN Capacity (Fixed Channel Count)\n' +
+                     'Connect-4 as a Testbed: Analyzing Learning Trajectories in a Solved Game',
+                     fontsize=14, fontweight='bold', y=0.995)
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
+    else:
+        plt.suptitle('GRU Size Effect: Varying RNN Capacity (Fixed Channel Count)\n' +
+                     'Connect-4 as a Testbed: Analyzing Learning Trajectories in a Solved Game',
+                     fontsize=14, fontweight='bold', y=0.995)
+        plt.tight_layout()
 
     output_path = Path(output_dir) / 'gru_sweep_comparison.png'
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
@@ -292,6 +329,8 @@ def plot_gru_sweep_comparison(metrics_data, history_data, output_dir):
 def plot_channel_sweep_comparison(metrics_data, history_data, output_dir):
     """Compare channel counts for each GRU size (main effect plots)."""
     fig, axes = plt.subplots(3, 3, figsize=(18, 14))
+    shared_handles = None
+    shared_labels = None
 
     for gru_idx, gru_size in enumerate(GRU_SIZES):
         # Weight norm
@@ -300,12 +339,17 @@ def plot_channel_sweep_comparison(metrics_data, history_data, output_dir):
             model_name = f'k3_c{channels}_gru{gru_size}'
             if model_name in metrics_data:
                 df = metrics_data[model_name]
-                ax.plot(df['epoch'], df['weight_norm'],
-                       label=f'c{channels}', color=CHANNEL_COLORS[channels],
-                       linewidth=2, marker='o', markersize=2)
+                ax.plot(
+                    df['epoch'], df['weight_norm'],
+                    label=f'c{channels}', color=CHANNEL_COLORS[channels],
+                    linewidth=2, marker='o', markersize=2
+                )
         ax.set_title(f'Weight Norm (GRU{gru_size})', fontweight='bold')
         ax.set_ylabel('Weight Norm')
-        ax.legend()
+        if shared_handles is None and shared_labels is None:
+            shared_handles, shared_labels = ax.get_legend_handles_labels()
+        if ax.get_legend():
+            ax.legend_.remove()
         ax.grid(True, alpha=0.3)
 
         # Step norm
@@ -315,12 +359,15 @@ def plot_channel_sweep_comparison(metrics_data, history_data, output_dir):
             if model_name in metrics_data:
                 df = metrics_data[model_name]
                 valid = df[df['step_norm'].notna()]
-                ax.plot(valid['epoch'], valid['step_norm'],
-                       label=f'c{channels}', color=CHANNEL_COLORS[channels],
-                       linewidth=2, marker='o', markersize=2)
+                ax.plot(
+                    valid['epoch'], valid['step_norm'],
+                    label=f'c{channels}', color=CHANNEL_COLORS[channels],
+                    linewidth=2, marker='o', markersize=2
+                )
         ax.set_title(f'Step Norm (GRU{gru_size})', fontweight='bold')
         ax.set_ylabel('Step Norm')
-        ax.legend()
+        if ax.get_legend():
+            ax.legend_.remove()
         ax.grid(True, alpha=0.3)
 
         # Validation loss
@@ -330,25 +377,37 @@ def plot_channel_sweep_comparison(metrics_data, history_data, output_dir):
             if model_name in history_data:
                 hist = history_data[model_name]
                 epochs = np.arange(1, len(hist['val_loss']) + 1)
-                ax.plot(epochs, hist['val_loss'],
-                       label=f'c{channels}', color=CHANNEL_COLORS[channels],
-                       linewidth=2)
+                ax.plot(
+                    epochs, hist['val_loss'],
+                    label=f'c{channels}', color=CHANNEL_COLORS[channels],
+                    linewidth=2
+                )
                 min_idx = np.argmin(hist['val_loss'])
-                ax.scatter([min_idx + 1], [hist['val_loss'][min_idx]],
-                          color=CHANNEL_COLORS[channels], s=100, zorder=5, marker='*')
+                ax.scatter(
+                    [min_idx + 1], [hist['val_loss'][min_idx]],
+                    color=CHANNEL_COLORS[channels], s=100, zorder=5, marker='*'
+                )
         ax.set_title(f'Validation Loss (GRU{gru_size})', fontweight='bold')
         ax.set_ylabel('Val Loss')
-        ax.legend()
+        if ax.get_legend():
+            ax.legend_.remove()
         ax.grid(True, alpha=0.3)
 
         if gru_idx == 2:
-            for ax in axes[gru_idx, :]:
-                ax.set_xlabel('Epoch')
+            for ax_bottom in axes[gru_idx, :]:
+                ax_bottom.set_xlabel('Epoch')
 
-    plt.suptitle('Channel Count Effect: Varying CNN Capacity (Fixed GRU Size)\n' +
-                 'Connect-4 as a Testbed: Analyzing Learning Trajectories in a Solved Game',
-                 fontsize=14, fontweight='bold', y=0.995)
-    plt.tight_layout()
+    if shared_handles and shared_labels:
+        fig.legend(shared_handles, shared_labels, loc='upper center', ncol=3, frameon=False, title='Channels')
+        plt.suptitle('Channel Count Effect: Varying CNN Capacity (Fixed GRU Size)\n' +
+                     'Connect-4 as a Testbed: Analyzing Learning Trajectories in a Solved Game',
+                     fontsize=14, fontweight='bold', y=0.995)
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
+    else:
+        plt.suptitle('Channel Count Effect: Varying CNN Capacity (Fixed GRU Size)\n' +
+                     'Connect-4 as a Testbed: Analyzing Learning Trajectories in a Solved Game',
+                     fontsize=14, fontweight='bold', y=0.995)
+        plt.tight_layout()
 
     output_path = Path(output_dir) / 'channel_sweep_comparison.png'
     plt.savefig(output_path, dpi=300, bbox_inches='tight')

@@ -32,6 +32,7 @@ import seaborn as sns
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, f1_score
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 
 try:
     import phate
@@ -85,6 +86,13 @@ def parse_args() -> argparse.Namespace:
         nargs="+",
         default=["current_player", "immediate_win_current", "immediate_win_opponent"],
         help="Feature names to evaluate with logistic regression probes.",
+    )
+    parser.add_argument(
+        "--probe-components",
+        nargs="+",
+        choices=["gru", "cnn"],
+        default=["gru"],
+        help="Representations to probe (GRU hidden state and/or CNN features).",
     )
     parser.add_argument(
         "--max-hidden-samples",
@@ -192,26 +200,62 @@ def plot_timescale_heatmap(df: pd.DataFrame, output_dir: Path) -> None:
     plt.close()
 
 
+def load_sample_components(
+    model_dir: Path,
+    epoch: int,
+    max_samples: int,
+    rng: np.random.Generator,
+    keys: Iterable[str],
+) -> Tuple[Dict[str, np.ndarray], np.ndarray, List[str], List[str]]:
+    sample_path = model_dir / "hidden_samples" / f"epoch_{epoch:03d}.npz"
+    if not sample_path.exists():
+        raise FileNotFoundError(f"Hidden sample not found: {sample_path}")
+    data = np.load(sample_path)
+    features = data["features"]
+    feature_names = [str(name) for name in data["feature_names"]]
+
+    available: Dict[str, np.ndarray] = {}
+    missing: List[str] = []
+    for key in keys:
+        if key in data:
+            available[key] = data[key]
+        else:
+            missing.append(str(key))
+
+    if available:
+        first_key = next(iter(available))
+        base = available[first_key]
+        if base.shape[0] > 0:
+            max_count = min(max_samples, base.shape[0])
+            if base.shape[0] > max_count:
+                indices = rng.choice(base.shape[0], size=max_count, replace=False)
+            else:
+                indices = np.arange(base.shape[0])
+            for key in list(available.keys()):
+                available[key] = available[key][indices]
+            features = features[indices]
+        else:
+            features = features[: base.shape[0]]
+    else:
+        if features.shape[0] > max_samples:
+            indices = rng.choice(features.shape[0], size=max_samples, replace=False)
+            features = features[indices]
+
+    return available, features, feature_names, missing
+
+
 def load_hidden_samples(
     model_dir: Path,
     epoch: int,
     max_samples: int,
     rng: np.random.Generator,
 ) -> Tuple[np.ndarray, np.ndarray, List[str]]:
-    sample_path = model_dir / "hidden_samples" / f"epoch_{epoch:03d}.npz"
-    if not sample_path.exists():
-        raise FileNotFoundError(f"Hidden sample not found: {sample_path}")
-    data = np.load(sample_path)
-    hidden = data["hidden"]
-    features = data["features"]
-    feature_names = [str(name) for name in data["feature_names"]]
-    if hidden.shape[0] == 0:
-        return hidden, features, feature_names
-    max_count = min(max_samples, hidden.shape[0])
-    if hidden.shape[0] > max_count:
-        indices = rng.choice(hidden.shape[0], size=max_count, replace=False)
-        hidden = hidden[indices]
-        features = features[indices]
+    arrays, features, feature_names, _ = load_sample_components(
+        model_dir, epoch, max_samples, rng, keys=("hidden",)
+    )
+    hidden = arrays.get("hidden")
+    if hidden is None:
+        hidden = np.empty((0, 0), dtype=np.float32)
     return hidden, features, feature_names
 
 
@@ -356,76 +400,205 @@ def run_probes(
     output_dir: Path,
     epochs: Iterable[int],
     feature_names: Iterable[str],
+    components: Iterable[str],
     max_samples: int,
     rng: np.random.Generator,
 ) -> None:
-    rows: List[Dict[str, object]] = []
+    component_rows: Dict[str, List[Dict[str, object]]] = {}
+
+    component_sequence = list(dict.fromkeys(components))
+    component_map = {"gru": "hidden", "cnn": "cnn"}
+    reverse_component_map = {value: key for key, value in component_map.items()}
+    requested_keys = tuple(
+        dict.fromkeys(
+            component_map[name] for name in component_sequence if component_map.get(name) is not None
+        ).keys()
+    )
+
+    if not requested_keys:
+        print("No valid probe components specified; skipping probes.")
+        return
+
+    missing_reported: set[Tuple[str, str]] = set()
 
     for model_dir in sorted(p for p in analysis_dir.iterdir() if p.is_dir()):
         model_meta = parse_model_name(model_dir.name)
         for epoch in epochs:
             try:
-                hidden, features, feat_names = load_hidden_samples(
-                    model_dir, epoch, max_samples, rng
+                arrays, features, feat_names, missing = load_sample_components(
+                    model_dir, epoch, max_samples, rng, keys=requested_keys
                 )
             except FileNotFoundError:
                 continue
-            if hidden.shape[0] == 0:
+            for missing_key in missing:
+                component_label = reverse_component_map.get(missing_key, missing_key)
+                marker = (model_dir.name, component_label)
+                if marker not in missing_reported:
+                    print(
+                        f"Skipping {component_label} probes for {model_dir.name}: "
+                        f"representation '{missing_key}' not found in epoch {epoch:03d} samples."
+                    )
+                    missing_reported.add(marker)
+            if not arrays:
                 continue
             name_to_idx = {name: idx for idx, name in enumerate(feat_names)}
 
-            for feature in feature_names:
-                if feature not in name_to_idx:
+            for component in component_sequence:
+                rep_key = component_map.get(component)
+                if rep_key is None or rep_key not in arrays:
                     continue
-                y = prepare_targets(features[:, name_to_idx[feature]], feature)
-                if y is None:
+                X = arrays[rep_key]
+                if X.shape[0] == 0:
                     continue
-                unique, counts = np.unique(y, return_counts=True)
-                if counts.min() < 2:
-                    continue
-                X_train, X_test, y_train, y_test = train_test_split(
-                    hidden, y, test_size=0.3, random_state=0, stratify=y
-                )
-                if np.unique(y_train).size < 2:
-                    continue
-                clf = LogisticRegression(max_iter=1000)
-                clf.fit(X_train, y_train)
-                y_pred = clf.predict(X_test)
-                acc = accuracy_score(y_test, y_pred)
-                f1 = f1_score(y_test, y_pred, average="binary")
-                row = {
-                    "model": model_dir.name,
-                    "epoch": epoch,
-                    "feature": feature,
-                    "accuracy": float(acc),
-                    "f1": float(f1),
-                }
-                row.update(model_meta)
-                rows.append(row)
 
-    if not rows:
+                for feature in feature_names:
+                    if feature not in name_to_idx:
+                        continue
+                    y = prepare_targets(features[:, name_to_idx[feature]], feature)
+                    if y is None:
+                        continue
+                    unique, counts = np.unique(y, return_counts=True)
+                    if counts.min() < 2:
+                        continue
+                    X_train, X_test, y_train, y_test = train_test_split(
+                        X, y, test_size=0.3, random_state=0, stratify=y
+                    )
+                    if np.unique(y_train).size < 2:
+                        continue
+
+                    # Standardize features for better convergence
+                    # Many hidden dimensions may have very different scales
+                    scaler = StandardScaler()
+                    X_train_scaled = scaler.fit_transform(X_train)
+                    X_test_scaled = scaler.transform(X_test)
+
+                    # Real probe with increased iterations and L2 regularization
+                    clf = LogisticRegression(
+                        max_iter=5000,
+                        solver='lbfgs',
+                        C=1.0,  # Regularization strength
+                        random_state=0,
+                        tol=1e-4
+                    )
+                    clf.fit(X_train_scaled, y_train)
+                    y_pred = clf.predict(X_test_scaled)
+                    acc = accuracy_score(y_test, y_pred)
+                    f1 = f1_score(y_test, y_pred, average="binary")
+
+                    # Control task: permuted labels
+                    y_train_permuted = rng.permutation(y_train)
+                    y_test_permuted = rng.permutation(y_test)
+                    clf_control = LogisticRegression(
+                        max_iter=5000,
+                        solver='lbfgs',
+                        C=1.0,
+                        random_state=0,
+                        tol=1e-4
+                    )
+                    clf_control.fit(X_train_scaled, y_train_permuted)
+                    y_pred_control = clf_control.predict(X_test_scaled)
+                    acc_control = accuracy_score(y_test_permuted, y_pred_control)
+
+                    row = {
+                        "model": model_dir.name,
+                        "epoch": epoch,
+                        "feature": feature,
+                        "component": component,
+                        "accuracy": float(acc),
+                        "f1": float(f1),
+                        "control_accuracy": float(acc_control),
+                        "signal_over_control": float(acc - acc_control),
+                    }
+                    row.update(model_meta)
+                    component_rows.setdefault(component, []).append(row)
+
+    if not component_rows:
         print("No probe results computed.")
         return
 
-    df = pd.DataFrame(rows)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    df.to_csv(output_dir / "probe_results.csv", index=False)
+    for component in component_sequence:
+        rows = component_rows.get(component)
+        if not rows:
+            continue
+        df = pd.DataFrame(rows)
+        use_subdir = component != "gru" or len(component_rows) > 1
+        component_dir = output_dir / component if use_subdir else output_dir
+        component_dir.mkdir(parents=True, exist_ok=True)
+        df.to_csv(component_dir / "probe_results.csv", index=False)
 
-    plt.figure(figsize=(10, 6))
-    sns.lineplot(
-        data=df,
-        x="epoch",
-        y="accuracy",
-        hue="feature",
-        style="gru",
-        markers=True,
-    )
-    plt.title("Probe Accuracy over Epochs")
-    plt.ylabel("Accuracy")
-    plt.xlabel("Epoch")
-    plt.tight_layout()
-    plt.savefig(output_dir / "probe_accuracy.png", dpi=300)
-    plt.close()
+        # Plot 1: Regular accuracy
+        plt.figure(figsize=(10, 6))
+        sns.lineplot(
+            data=df,
+            x="epoch",
+            y="accuracy",
+            hue="feature",
+            style="gru",
+            markers=True,
+        )
+        title = f"{component.upper()} Probe Accuracy over Epochs"
+        plt.title(title)
+        plt.ylabel("Accuracy")
+        plt.xlabel("Epoch")
+        plt.tight_layout()
+        plt.savefig(component_dir / "probe_accuracy.png", dpi=300)
+        plt.close()
+
+        # Plot 2: Signal over control (new)
+        if "signal_over_control" in df.columns:
+            plt.figure(figsize=(10, 6))
+            sns.lineplot(
+                data=df,
+                x="epoch",
+                y="signal_over_control",
+                hue="feature",
+                style="gru",
+                markers=True,
+            )
+            plt.axhline(y=0, color='gray', linestyle='--', linewidth=1, alpha=0.5)
+            title = f"{component.upper()} Signal Over Control Task"
+            plt.title(title)
+            plt.ylabel("Accuracy - Control Accuracy")
+            plt.xlabel("Epoch")
+            plt.tight_layout()
+            plt.savefig(component_dir / "probe_signal_over_control.png", dpi=300)
+            plt.close()
+
+            # Plot 3: Comparison plot (real vs control)
+            _fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+
+            # Real accuracy
+            sns.lineplot(
+                data=df,
+                x="epoch",
+                y="accuracy",
+                hue="feature",
+                style="gru",
+                markers=True,
+                ax=ax1,
+            )
+            ax1.set_title(f"{component.upper()} Real Probe Accuracy")
+            ax1.set_ylabel("Accuracy")
+            ax1.set_xlabel("Epoch")
+
+            # Control accuracy
+            sns.lineplot(
+                data=df,
+                x="epoch",
+                y="control_accuracy",
+                hue="feature",
+                style="gru",
+                markers=True,
+                ax=ax2,
+            )
+            ax2.axhline(y=0.5, color='red', linestyle='--', linewidth=1, alpha=0.5, label='Chance')
+            ax2.set_title(f"{component.upper()} Control Task Accuracy (Permuted Labels)")
+            ax2.set_ylabel("Accuracy")
+            ax2.set_xlabel("Epoch")
+
+            plt.tight_layout()
+            plt.savefig(component_dir / "probe_comparison.png", dpi=300)
+            plt.close()
 
 
 def main() -> None:
@@ -455,6 +628,7 @@ def main() -> None:
             output_dir,
             epochs=args.probe_epochs,
             feature_names=args.probe_features,
+            components=args.probe_components,
             max_samples=args.max_hidden_samples,
             rng=rng,
         )

@@ -1233,17 +1233,18 @@ def visualize_ablation_weight_trajectories(checkpoint_dirs, component='cnn', dev
     return fig, embedding, run_data
 
 
-def generate_random_boards(n_boards=100):
+def generate_random_boards(n_boards=100, seed=None):
     """Generate random Connect-4 board states for visualization"""
     boards = []
+    rng = np.random.default_rng(seed)
     for _ in range(n_boards):
         # Random board with 0-20 pieces
-        n_pieces = np.random.randint(0, 21)
+        n_pieces = int(rng.integers(0, 21))
         board = np.zeros((3, 6, 7), dtype=np.float32)
 
         for _ in range(n_pieces):
-            player = np.random.randint(0, 2)  # 0=yellow, 1=red
-            col = np.random.randint(0, 7)
+            player = int(rng.integers(0, 2))  # 0=yellow, 1=red
+            col = int(rng.integers(0, 7))
 
             # Find lowest empty row
             for row in range(5, -1, -1):
@@ -1252,7 +1253,7 @@ def generate_random_boards(n_boards=100):
                     break
 
         # Add turn plane
-        board[2, :, :] = np.random.randint(0, 2)
+        board[2, :, :] = rng.integers(0, 2, size=(6, 7))
 
         boards.append(torch.from_numpy(board).unsqueeze(0))
 
@@ -1273,6 +1274,8 @@ def main():
                        help="Type of visualization to create")
     parser.add_argument("--n-boards", type=int, default=100,
                        help="Number of random boards for representation viz")
+    parser.add_argument("--board-seed", type=int, default=0,
+                       help="Seed for random board generation (default: 0)")
     parser.add_argument("--ablation-animate", action='store_true',
                        help="Produce a GIF animation for ablation visualizations")
     parser.add_argument("--ablation-center", choices=["none", "anchor", "normalize"], default="none",
@@ -1360,7 +1363,7 @@ def main():
         print("\n" + "="*60)
         print("CNN Activation Maps (Grad-CAM)")
         print("="*60)
-        boards = generate_random_boards(args.n_boards)
+        boards = generate_random_boards(args.n_boards, seed=args.board_seed)
         checkpoint_path = viz.get_latest_checkpoint_path()
         viz.visualize_cnn_activations(
             boards,
@@ -1428,7 +1431,7 @@ def main():
         print("\n" + "="*60)
         print("Board State Representations")
         print("="*60)
-        boards = generate_random_boards(args.n_boards)
+        boards = generate_random_boards(args.n_boards, seed=args.board_seed)
         checkpoint_path = viz.get_latest_checkpoint_path()
         viz.visualize_board_representations(boards, checkpoint_path,
                                            save_path=output_dir / "board_representations.png")

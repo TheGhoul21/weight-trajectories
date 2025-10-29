@@ -378,6 +378,7 @@ def analyze_checkpoint(
                     feats = compute_board_features(states[t].cpu(), move_index=t)
                     sample_entry = {
                         "hidden": h_next.detach().cpu().numpy().astype(np.float32),
+                        "cnn": x_t.detach().cpu().numpy().astype(np.float32),
                         "update_gate": z_t.detach().cpu().numpy().astype(np.float32),
                         "reset_gate": r_t.detach().cpu().numpy().astype(np.float32),
                         "features": np.array([feats[k] for k in sorted(feats.keys())], dtype=np.float32),
@@ -548,6 +549,7 @@ def main() -> None:
             sample_path = hidden_out_dir / f"epoch_{epoch:03d}.npz"
             sample_payload = {
                 "hidden": np.stack([s["hidden"] for s in samples], axis=0) if samples else np.empty((0, model.gru_hidden_size)),
+                "cnn": np.stack([s["cnn"] for s in samples], axis=0) if samples else np.empty((0, model.feature_size)),
                 "update_gate": np.stack([s["update_gate"] for s in samples], axis=0) if samples else np.empty((0, model.gru_hidden_size)),
                 "reset_gate": np.stack([s["reset_gate"] for s in samples], axis=0) if samples else np.empty((0, model.gru_hidden_size)),
                 "features": np.stack([s["features"] for s in samples], axis=0) if samples else np.empty((0, len(feature_names_sorted))),

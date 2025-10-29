@@ -24,6 +24,12 @@ REPO_ROOT = Path(__file__).parent.parent
 ALPHAZERO_DIR = REPO_ROOT / "dataset" / "Alpha-Zero-algorithm-for-Connect-4-game"
 sys.path.insert(0, str(ALPHAZERO_DIR))
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from _repro import child_seed, seed_everything
+
 import config
 from main_functions import load_or_create_neural_net
 from multiprocessing import Process
@@ -64,11 +70,17 @@ def parse_args():
         action="store_true",
         help="Generate only 20 games as a test",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="Random seed for reproducible generation (default: 0)",
+    )
 
     return parser.parse_args()
 
 
-def play_one_game_sequential(player, sim_number, cpuct, tau, tau_zero, use_dirichlet, game_index):
+def play_one_game_sequential(player, sim_number, cpuct, tau, tau_zero, use_dirichlet, game_index, seed=None):
     """
     Play one game and return the sequence of positions
 
@@ -79,8 +91,11 @@ def play_one_game_sequential(player, sim_number, cpuct, tau, tau_zero, use_diric
     from MCTS_NN import MCTS_NN
 
     # Safety first
-    random.seed()
-    np.random.seed()
+    if seed is not None:
+        seed_everything(seed, deterministic_torch=False)
+    else:
+        random.seed()
+        np.random.seed()
 
     game_sequence = []  # Will store (state, policy, value) for each move
 
@@ -211,7 +226,7 @@ def play_one_game_sequential(player, sim_number, cpuct, tau, tau_zero, use_diric
     return len(augmented_games)
 
 
-def generate_sequential_dataset(num_games, simulations=250, cpus=4):
+def generate_sequential_dataset(num_games, simulations=250, cpus=4, seed=0):
     """
     Generate dataset with preserved game sequences
 
@@ -222,6 +237,8 @@ def generate_sequential_dataset(num_games, simulations=250, cpus=4):
     print("="*80)
     print("Sequential Connect-4 Dataset Generation (for GRU Training)")
     print("="*80)
+
+    seed_everything(seed, deterministic_torch=False)
 
     # Load model
     print("\n[1/4] Loading trained AlphaZero model...")
@@ -242,6 +259,7 @@ def generate_sequential_dataset(num_games, simulations=250, cpus=4):
     print(f"  - Actual games: {actual_games}")
     print(f"  - MCTS simulations: {simulations}")
     print(f"  - Data augmentation: {config.data_extension}")
+    print(f"  - Seed: {seed}")
 
     # Generate games
     print(f"\n[3/4] Generating {actual_games} games...")
@@ -261,10 +279,11 @@ def generate_sequential_dataset(num_games, simulations=250, cpus=4):
 
         for cpu_idx in range(cpus):
             game_idx = iteration * cpus + cpu_idx
+            proc_seed = child_seed(seed, game_idx)
             proc = Process(
                 target=play_one_game_sequential,
                 args=(model, simulations, config.CPUCT, config.tau_self_play,
-                      config.tau_zero_self_play, config.dirichlet_for_self_play, game_idx)
+                      config.tau_zero_self_play, config.dirichlet_for_self_play, game_idx, proc_seed)
             )
             procs.append(proc)
             proc.start()
@@ -317,6 +336,7 @@ def generate_sequential_dataset(num_games, simulations=250, cpus=4):
         'mcts_simulations': simulations,
         'cpus_used': cpus,
         'data_augmentation': config.data_extension,
+        'seed': int(seed),
     }
 
     print(f"\n✓ Generation complete in {duration:.1f} seconds")
@@ -387,6 +407,7 @@ def save_sequential_dataset(games, stats, output_path):
     stats['pytorch_version'] = torch.__version__
     stats['format'] = 'sequential'
     stats['format_description'] = 'List of games, each game is a sequence of (state, policy, value) tuples'
+    stats.setdefault('seed', None)
 
     # Save
     print(f"\nSaving sequential dataset to: {output_path}")

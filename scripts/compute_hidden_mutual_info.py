@@ -70,7 +70,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--seed",
         type=int,
-        default=0,
+        default=37,
         help="Random seed for subsampling.",
     )
     parser.add_argument(
@@ -218,7 +218,7 @@ def compute_per_dimension_mi(
 
 
 def plot_final_epoch_heatmap(df: pd.DataFrame, output_path: Path) -> None:
-    latest = df.loc[df.groupby("model")["epoch"].idxmax()]
+    latest = df[df["epoch"] == df.groupby("model")["epoch"].transform("max")]
     pivot = latest.pivot_table(
         index="feature",
         columns="model",
@@ -228,6 +228,7 @@ def plot_final_epoch_heatmap(df: pd.DataFrame, output_path: Path) -> None:
     sns.heatmap(
         pivot,
         annot=True,
+        annot_kws={"size": 8},
         fmt=".3f",
         cmap="magma",
         cbar_kws={"label": "Mutual Information"},
@@ -247,7 +248,13 @@ def plot_feature_trends(df: pd.DataFrame, features: Iterable[str], output_dir: P
     cols = min(3, num_features)
     rows = int(np.ceil(num_features / cols)) if num_features else 1
 
+    # Ensure consistent color mapping and a single, clear legend
+    hue_order = sorted(df["model"].unique()) if "model" in df.columns else None
+    palette = sns.color_palette(n_colors=len(hue_order)) if hue_order is not None else None
+
     fig, axes = plt.subplots(rows, cols, figsize=(5 * cols, 3.5 * rows), squeeze=False)
+    first_ax_with_legend = None
+    last_idx = -1
     for idx, feature in enumerate(features):
         ax = axes[idx // cols][idx % cols]
         subset = df[df["feature"] == feature]
@@ -256,23 +263,50 @@ def plot_feature_trends(df: pd.DataFrame, features: Iterable[str], output_dir: P
             ax.text(0.5, 0.5, "No data", ha="center", va="center")
             ax.axis("off")
             continue
+        # Put a legend only on the first populated subplot; we'll lift it to figure-level later
+        show_legend = first_ax_with_legend is None
         sns.lineplot(
             data=subset,
             x="epoch",
             y="mi",
             hue="model",
+            hue_order=hue_order,
+            palette=palette,
             ax=ax,
-            legend=False,
+            legend=show_legend,
         )
+        if show_legend:
+            first_ax_with_legend = ax
         ax.set_title(feature)
         ax.set_ylabel("Mutual Information")
         ax.set_xlabel("Epoch")
+        last_idx = idx
 
-    for extra in range(idx + 1, rows * cols):
+    # Turn off any unused subplots
+    for extra in range((last_idx + 1), rows * cols):
         ax = axes[extra // cols][extra % cols]
         ax.axis("off")
 
-    fig.tight_layout()
+    # Promote the legend from the first axis to a single, shared figure-level legend
+    if first_ax_with_legend is not None and first_ax_with_legend.get_legend() is not None:
+        handles, labels = first_ax_with_legend.get_legend_handles_labels()
+        # Remove automatic title like "model" from axes legend by deleting it
+        first_ax_with_legend.legend_.remove()
+        ncols = min(4, len(labels)) if labels else 1
+        fig.legend(
+            handles,
+            labels,
+            loc="upper center",
+            bbox_to_anchor=(0.5, 1.02),
+            ncol=ncols,
+            frameon=False,
+            title="Model",
+        )
+        # Make room for the legend above
+        fig.tight_layout(rect=[0, 0, 1, 0.96])
+    else:
+        fig.tight_layout()
+
     output_path = output_dir / "mi_trends.png"
     fig.savefig(output_path, dpi=300)
     plt.close(fig)
