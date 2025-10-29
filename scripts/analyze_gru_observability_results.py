@@ -130,6 +130,12 @@ def parse_args() -> argparse.Namespace:
         default=20,
         help="Print progress every N fits/steps (>=1).",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Number of worker processes/threads to use (currently unused; reserved for future parallelism).",
+    )
     return parser.parse_args()
 
 
@@ -415,6 +421,7 @@ def run_probes(
     max_samples: int,
     rng: np.random.Generator,
     progress_interval: int = 20,
+    workers: int = 1,
 ) -> None:
     component_rows: Dict[str, List[Dict[str, object]]] = {}
 
