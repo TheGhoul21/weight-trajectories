@@ -8,6 +8,9 @@ How to Generate
 - `./wt.sh trajectory-embedding [--method umap|tsne|phate|tphate]` (runs `scripts/visualize_trajectory_embedding.py`)
 - T‑PHATE variant: `--method tphate --time-alpha 3` scales the epoch feature to emphasize temporal continuity
 
+Related Guides
+- [Reading Dimensionality Reduction Plots](../guides/reading_dimensionality_reduction.md) - Comprehensive guide to interpreting PCA, PHATE, t-SNE, and UMAP visualizations with theoretical background and detailed explanations
+
 Why metric space vs raw weights
 - Different architectures have incompatible parameter spaces; raw weights are not directly comparable.
 - Shared metrics (norms, step statistics, losses, representation variance) are architecture‑agnostic and support joint embeddings across models.

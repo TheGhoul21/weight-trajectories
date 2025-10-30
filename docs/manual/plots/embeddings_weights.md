@@ -7,6 +7,9 @@ Overview
 How to Generate
 - `./wt.sh embeddings` (uses `scripts/analyze_weight_embeddings.py`)
 
+Related Guides
+- [Reading Dimensionality Reduction Plots](../guides/reading_dimensionality_reduction.md) - Comprehensive guide to interpreting PCA, PHATE, t-SNE, and UMAP visualizations with theoretical background and detailed explanations
+
 ## Purpose
 
 Visualize training dynamics by embedding high-dimensional weight snapshots into 2D space. This reveals how parameters evolve during training, shows convergence patterns, and enables comparison across different training runs or architectures.

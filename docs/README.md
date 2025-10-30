@@ -17,6 +17,8 @@ Complete coverage of the **wt.sh** toolchain for:
 Complete practical guide to all commands, plots, and workflows
 - [Commands Reference](manual/commands/) - All `./wt.sh` commands documented
 - [Plot Interpretation](manual/plots/) - How to read every visualization
+- [Conceptual Guides](manual/guides/) - Understanding analysis methods
+  - [Reading Dimensionality Reduction](manual/guides/reading_dimensionality_reduction.md) - Interpreting PCA, PHATE, t-SNE, UMAP
 - [Workflows](manual/workflows/) - End-to-end analysis pipelines
 
 ### [Scientific Background](scientific/)

@@ -57,6 +57,10 @@ What you're looking at and how to read it
 
 Note: The Unified Visualization Suite includes temporal trajectory plots across both training and game time, with T‑PHATE support (delay embeddings and temporal kernel blending) for clearer learning dynamics.
 
+### Guides
+Conceptual guides for understanding analysis methods
+- [Reading Dimensionality Reduction Plots](guides/reading_dimensionality_reduction.md) - Complete guide to interpreting PCA, PHATE, t-SNE, and UMAP visualizations with theoretical background, algorithms, and pattern interpretation
+
 ### Workflows
 End-to-end analysis guides
 - [Workflows Overview](manual/workflows/) - All pipelines indexed
