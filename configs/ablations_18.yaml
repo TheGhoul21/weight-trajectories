@@ -10,10 +10,10 @@ k3_c16_gru8:
   kernel_size: 3
   cnn_channels: 16
   gru_hidden: 8
-  batch_size: 8192
+  batch_size: 81920
   epochs: 100
   lr: 0.001
-  save_every: 3
+  save_every: 1
 
 k3_c16_gru32:
   kernel_size: 3
@@ -22,7 +22,7 @@ k3_c16_gru32:
   batch_size: 8192
   epochs: 100
   lr: 0.001
-  save_every: 3
+  save_every: 1
 
 k3_c16_gru128:
   kernel_size: 3
@@ -31,7 +31,7 @@ k3_c16_gru128:
   batch_size: 64
   epochs: 100
   lr: 0.001
-  save_every: 3
+  save_every: 1
 
 # Kernel 3x3, Channels 64
 k3_c64_gru8:
@@ -41,7 +41,7 @@ k3_c64_gru8:
   batch_size: 4096
   epochs: 100
   lr: 0.001
-  save_every: 3
+  save_every: 1
 
 k3_c64_gru32:
   kernel_size: 3
@@ -50,7 +50,7 @@ k3_c64_gru32:
   batch_size: 2048
   epochs: 100
   lr: 0.001
-  save_every: 3
+  save_every: 1
 
 k3_c64_gru128:
   kernel_size: 3
@@ -59,7 +59,7 @@ k3_c64_gru128:
   batch_size: 64
   epochs: 100
   lr: 0.001
-  save_every: 3
+  save_every: 1
 
 # Kernel 3x3, Channels 256
 k3_c256_gru8:
@@ -69,7 +69,7 @@ k3_c256_gru8:
   batch_size: 1024
   epochs: 100
   lr: 0.001
-  save_every: 3
+  save_every: 1
 
 k3_c256_gru32:
   kernel_size: 3
@@ -78,7 +78,7 @@ k3_c256_gru32:
   batch_size: 512
   epochs: 100
   lr: 0.001
-  save_every: 3
+  save_every: 1
 
 k3_c256_gru128:
   kernel_size: 3
@@ -87,7 +87,7 @@ k3_c256_gru128:
   batch_size: 256
   epochs: 100
   lr: 0.001
-  save_every: 3
+  save_every: 1
 
 # Kernel 6x6, Channels 16
 k6_c16_gru8:
@@ -97,7 +97,7 @@ k6_c16_gru8:
   batch_size: 8192
   epochs: 100
   lr: 0.001
-  save_every: 3
+  save_every: 1
 
 k6_c16_gru32:
   kernel_size: 6
@@ -106,7 +106,7 @@ k6_c16_gru32:
   batch_size: 8192
   epochs: 100
   lr: 0.001
-  save_every: 3
+  save_every: 1
 
 k6_c16_gru128:
   kernel_size: 6
@@ -115,7 +115,7 @@ k6_c16_gru128:
   batch_size: 64
   epochs: 100
   lr: 0.001
-  save_every: 3
+  save_every: 1
 
 # Kernel 6x6, Channels 64
 k6_c64_gru8:
@@ -125,7 +125,7 @@ k6_c64_gru8:
   batch_size: 4096
   epochs: 100
   lr: 0.001
-  save_every: 3
+  save_every: 1
 
 k6_c64_gru32:
   kernel_size: 6
@@ -134,7 +134,7 @@ k6_c64_gru32:
   batch_size: 2048
   epochs: 100
   lr: 0.001
-  save_every: 3
+  save_every: 1
 
 k6_c64_gru128:
   kernel_size: 6
@@ -143,7 +143,7 @@ k6_c64_gru128:
   batch_size: 64
   epochs: 100
   lr: 0.001
-  save_every: 3
+  save_every: 1
 
 # Kernel 6x6, Channels 256
 k6_c256_gru8:
@@ -153,7 +153,7 @@ k6_c256_gru8:
   batch_size: 512
   epochs: 100
   lr: 0.001
-  save_every: 3
+  save_every: 1
 
 k6_c256_gru32:
   kernel_size: 6
@@ -162,7 +162,7 @@ k6_c256_gru32:
   batch_size: 1024
   epochs: 100
   lr: 0.001
-  save_every: 3
+  save_every: 1
 
 k6_c256_gru128:
   kernel_size: 6
@@ -171,7 +171,7 @@ k6_c256_gru128:
   batch_size: 768
   epochs: 100
   lr: 0.001
-  save_every: 3
+  save_every: 1
 
 # Convenience aggregate targets
 k3_all:

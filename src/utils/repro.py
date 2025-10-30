@@ -14,7 +14,7 @@ except ImportError:  # pragma: no cover
     torch = None  # type: ignore
 
 
-def seed_everything(seed: int, deterministic_torch: bool = True) -> None:
+def seed_everything(seed: int, deterministic_torch: bool = False) -> None:
     """Seed random, numpy, and torch (if available)."""
     os.environ.setdefault("PYTHONHASHSEED", str(seed))
 
