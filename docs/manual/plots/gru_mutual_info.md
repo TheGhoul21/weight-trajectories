@@ -13,6 +13,8 @@ Inputs from: `diagnostics/gru_observability/<model>/hidden_samples/epoch_XXX.npz
   - Rows: 12 board features
   - Columns: model architectures (k3_c64_gru32, etc.)
   - Color: MI magnitude (darker = higher dependence)
+- **mi_heatmap_best.png**: Cross-model comparison at each model’s best validation-loss epoch (from checkpoints history)
+  - Same layout as final heatmap; provides a fairer “best-achieved” view across architectures
 - **mi_trends.png**: 12-subplot grid showing MI evolution over training
   - Each subplot: one feature
   - X-axis: epoch
@@ -20,15 +22,18 @@ Inputs from: `diagnostics/gru_observability/<model>/hidden_samples/epoch_XXX.npz
   - Hue: model (each architecture gets a line)
 - **mi_metadata.json**: Run parameters (features, max_samples, seed, paths)
 
-### Per-dimension analysis (per model, final epoch only)
-- **mi_per_dimension_<model>.png**: Heatmap identifying specialized neurons
+### Per-dimension analysis (per model, final and best epochs)
+- **mi_per_dimension_<model>.png** (final): Heatmap identifying specialized neurons
   - Rows: 12 board features
   - Columns: hidden dimension indices (0..31 for GRU32, 0..127 for GRU128, etc.)
   - Color: per-dimension MI (brighter = dimension encodes feature more)
   - **★ symbol**: marks the single most informative dimension for each feature
   - Example: ★ at (immediate_win_current, dim17) means dimension 17 has highest MI with immediate wins
+- Best-epoch variants are written under `best_epoch/`:
+  - `best_epoch/mi_per_dimension_<model>.png`
+  - `best_epoch/mi_dimension_values_<model>.png`
 
-- **mi_dimension_values_<model>.png**: Shows HOW the best dimension encodes each feature
+- **mi_dimension_values_<model>.png** (final): Shows HOW the best dimension encodes each feature
   - 12 subplots in 3×4 grid (one per feature)
   - Title format: `<feature>\nBest dim: X (MI=Y.YYY)`
   - **Binary features** (current_player, immediate_win_*, three_in_row_*):
@@ -39,6 +44,10 @@ Inputs from: `diagnostics/gru_observability/<model>/hidden_samples/epoch_XXX.npz
     - Scatter plot: dimension value vs feature value
     - Linear trend → simple accumulator/counter
     - Nonlinear/clustered → complex encoding
+
+Best vs final epoch selection
+- Best epoch per model is taken from `checkpoints/<model>/training_history.json` using `epochs_saved` to index into `val_loss` and pick the minimum.
+- Final epoch refers to the maximum saved epoch.
 
 ## Reading the plots
 

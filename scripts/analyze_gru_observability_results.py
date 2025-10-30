@@ -125,6 +125,11 @@ def parse_args() -> argparse.Namespace:
         help="Skip logistic regression probing.",
     )
     parser.add_argument(
+        "--only-confusions",
+        action="store_true",
+        help="Generate only confusion-matrix plots from probes (skip other probe visualizations).",
+    )
+    parser.add_argument(
         "--progress-interval",
         type=int,
         default=20,
@@ -160,6 +165,67 @@ def parse_model_name(name: str) -> Dict[str, int]:
         elif token.startswith("gru"):
             parts["gru"] = int(token[3:])
     return parts
+
+
+def _get_best_and_final_saved_epoch(model_name: str, analysis_dir: Path) -> tuple[int | None, int | None]:
+    """Return (best_saved_epoch, final_saved_epoch) for a model.
+
+    Resolves the model's checkpoints directory even when names include timestamps by
+    preferring checkpoints/<model_name>/training_history.json if it exists, otherwise
+    the most recent checkpoints/<model_name>_*/training_history.json.
+
+    Uses the "epochs_saved" list to select the epoch with minimal val_loss among those saved.
+    Falls back to inferring only the final available epoch from hidden_samples if history is missing.
+    """
+    try:
+        # Primary path: exact match
+        hist_path = Path("checkpoints") / model_name / "training_history.json"
+        # Fallback: any directory that starts with the model prefix (e.g., has a timestamp)
+        if not hist_path.exists():
+            candidates = sorted(Path("checkpoints").glob(f"{model_name}_*/training_history.json"))
+            if candidates:
+                # pick the most recent by modified time; tie-breaker: lexical order
+                hist_path = max(candidates, key=lambda p: (p.stat().st_mtime, str(p)))
+        if hist_path.exists():
+            with hist_path.open("r") as f:
+                hist = json.load(f)
+            val_loss = hist.get("val_loss", [])
+            epochs_saved = hist.get("epochs_saved")
+            if not epochs_saved:
+                # Fallback to hidden_samples epochs
+                samples_dir = analysis_dir / model_name / "hidden_samples"
+                if samples_dir.exists():
+                    epochs_saved = []
+                    for p in samples_dir.glob("epoch_*.npz"):
+                        try:
+                            epochs_saved.append(int(p.stem.split("_")[-1]))
+                        except Exception:
+                            pass
+            best_e, best_v = None, float("inf")
+            for e in epochs_saved or []:
+                idx = int(e) - 1
+                if 0 <= idx < len(val_loss):
+                    v = val_loss[idx]
+                    if v < best_v:
+                        best_v = v
+                        best_e = int(e)
+            final_e = int(max(epochs_saved)) if epochs_saved else None
+            return best_e, final_e
+    except Exception:
+        pass
+    # Last resort: infer final from hidden_samples only
+    samples_dir = analysis_dir / model_name / "hidden_samples"
+    if not samples_dir.exists():
+        return None, None
+    epochs = []
+    for p in samples_dir.glob("epoch_*.npz"):
+        try:
+            epochs.append(int(p.stem.split("_")[-1]))
+        except Exception:
+            pass
+    if not epochs:
+        return None, None
+    return None, int(max(epochs))
 
 
 def load_metrics_table(analysis_dir: Path) -> pd.DataFrame:
@@ -434,18 +500,27 @@ def run_probes(
     workers: int = 1,
     class_weight: str = "balanced",
     balance_train: bool = False,
+    only_confusions: bool = False,
 ) -> None:
     component_rows: Dict[str, List[Dict[str, object]]] = {}
     # Aggregate confusion counts across models for compact, informative confusion matrices
     # Key: (component, feature, epoch) -> counts dict
     confusion_counts: Dict[Tuple[str, str, int], Dict[str, int]] = {}
+    # Also aggregate across models at their respective best-saved epoch (keyed by 'best')
+    confusion_counts_best: Dict[Tuple[str, str], Dict[str, int]] = {}
+    # Per-model confusion counts (by epoch) for optional split visualisations
+    confusion_counts_by_model: Dict[Tuple[str, str, str, int], Dict[str, int]] = {}
+    # Per-model best-epoch confusion counts
+    confusion_counts_best_by_model: Dict[Tuple[str, str, str], Dict[str, int]] = {}
     # For density plots at the final probed epoch, store scores and labels aggregated across models
     try:
         _final_epoch_target = max(list(epochs))
     except Exception:
         _final_epoch_target = None
-    score_store: Dict[Tuple[str, str], List[np.ndarray]] = {}
-    label_store: Dict[Tuple[str, str], List[np.ndarray]] = {}
+    score_store_final: Dict[Tuple[str, str], List[np.ndarray]] = {}
+    label_store_final: Dict[Tuple[str, str], List[np.ndarray]] = {}
+    score_store_best: Dict[Tuple[str, str], List[np.ndarray]] = {}
+    label_store_best: Dict[Tuple[str, str], List[np.ndarray]] = {}
 
     component_sequence = list(dict.fromkeys(components))
     component_map = {"gru": "hidden", "cnn": "cnn"}
@@ -475,7 +550,31 @@ def run_probes(
     for model_dir in model_dirs:
         model_meta = parse_model_name(model_dir.name)
         print(f"[Probes] Model: {model_dir.name}", flush=True)
-        for epoch in epochs:
+        # Expand epochs for this model to include its best and final saved epochs
+        be, fe = _get_best_and_final_saved_epoch(model_dir.name, analysis_dir)
+        # Discover available sample epochs for this model (so we can snap to nearest if needed)
+        samples_dir = model_dir / "hidden_samples"
+        available_epochs = []
+        if samples_dir.exists():
+            for p in samples_dir.glob("epoch_*.npz"):
+                try:
+                    available_epochs.append(int(p.stem.split("_")[-1]))
+                except Exception:
+                    pass
+        available_epochs = sorted(set(available_epochs))
+        # Snap best epoch to the nearest available epoch if needed
+        be_adj = None
+        if be is not None and available_epochs:
+            if int(be) in available_epochs:
+                be_adj = int(be)
+            else:
+                be_adj = int(min(available_epochs, key=lambda e: abs(e - int(be))))
+        epochs_for_model = set(int(e) for e in epochs)
+        if be_adj is not None:
+            epochs_for_model.add(int(be_adj))
+        if fe is not None:
+            epochs_for_model.add(int(fe))
+        for epoch in sorted(epochs_for_model):
             epoch_t0 = time.time()
             try:
                 arrays, features, feat_names, missing = load_sample_components(
@@ -597,6 +696,28 @@ def run_probes(
                     bucket["tn"] += tn
                     bucket["fp"] += fp
                     bucket["fn"] += fn
+                    # Per-model by-epoch counts
+                    key_ccm = (model_dir.name, component, feature, epoch)
+                    bucket_m = confusion_counts_by_model.setdefault(key_ccm, {"tp": 0, "tn": 0, "fp": 0, "fn": 0})
+                    bucket_m["tp"] += tp
+                    bucket_m["tn"] += tn
+                    bucket_m["fp"] += fp
+                    bucket_m["fn"] += fn
+                    # Also aggregate into best-epoch bucket for this model if this is its best epoch
+                    if be_adj is not None and epoch == int(be_adj):
+                        key_best = (component, feature)
+                        b2 = confusion_counts_best.setdefault(key_best, {"tp": 0, "tn": 0, "fp": 0, "fn": 0})
+                        b2["tp"] += tp
+                        b2["tn"] += tn
+                        b2["fp"] += fp
+                        b2["fn"] += fn
+                        # And store per-model best as well
+                        key_bm = (model_dir.name, component, feature)
+                        bm = confusion_counts_best_by_model.setdefault(key_bm, {"tp": 0, "tn": 0, "fp": 0, "fn": 0})
+                        bm["tp"] += tp
+                        bm["tn"] += tn
+                        bm["fp"] += fp
+                        bm["fn"] += fn
                     # Per-class accuracy (recall per class)
                     pos_mask = y_test == 1
                     neg_mask = y_test == 0
@@ -619,8 +740,13 @@ def run_probes(
                     # Store scores/labels at final epoch for lean density plots
                     if _final_epoch_target is not None and epoch == _final_epoch_target:
                         key_sf = (component, feature)
-                        score_store.setdefault(key_sf, []).append(y_scores)
-                        label_store.setdefault(key_sf, []).append(y_test)
+                        score_store_final.setdefault(key_sf, []).append(y_scores)
+                        label_store_final.setdefault(key_sf, []).append(y_test)
+                    # Collect scores for best-epoch aggregation as well
+                    if be is not None and epoch == int(be):
+                        key_sb = (component, feature)
+                        score_store_best.setdefault(key_sb, []).append(y_scores)
+                        label_store_best.setdefault(key_sb, []).append(y_test)
                     _, test_counts = np.unique(y_test, return_counts=True)
                     majority_baseline = test_counts.max() / test_counts.sum()
                     adjusted_accuracy = acc - majority_baseline
@@ -733,26 +859,47 @@ def run_probes(
         df.to_csv(component_dir / "probe_results.csv", index=False)
         print(f"[Probes] Wrote results for component={component} to {component_dir / 'probe_results.csv'}", flush=True)
 
-        # Plot 1: Regular accuracy (kept for backward compatibility)
-        plt.figure(figsize=(10, 6))
-        sns.lineplot(
-            data=df,
-            x="epoch",
-            y="accuracy",
-            hue="feature",
-            style="gru",
-            markers=True,
-        )
-        title = f"{component.upper()} Probe Accuracy over Epochs"
-        plt.title(title)
-        plt.ylabel("Accuracy")
-        plt.xlabel("Epoch")
-        plt.tight_layout()
-        plt.savefig(component_dir / "probe_accuracy.png", dpi=300)
-        plt.close()
+        # Determine model order once (used by multiple plots)
+        model_order = sorted(df["model"].unique().tolist())
+
+        # Plot 1: Improved readability accuracy plot (facet by feature)
+        if not only_confusions:
+            unique_feats = sorted(df["feature"].unique().tolist())
+            n = len(unique_feats)
+            cols = min(3, n) if n else 1
+            rows = int(math.ceil(n / cols)) if n else 1
+            fig, axes = plt.subplots(rows, cols, figsize=(5.5 * cols, 3.6 * rows), squeeze=False)
+            # consistent palette across models
+            palette = sns.color_palette("Set2", n_colors=len(model_order))
+            color_map = {m: palette[i] for i, m in enumerate(model_order)}
+            for idx, feat in enumerate(unique_feats):
+                ax = axes[idx // cols][idx % cols]
+                sub = df[df["feature"] == feat]
+                if sub.empty:
+                    ax.axis('off')
+                    continue
+                for m, g in sub.groupby("model"):
+                    g = g.sort_values("epoch")
+                    ax.plot(g["epoch"], g["accuracy"], label=m, color=color_map[m], linewidth=1.8)
+                ax.set_title(feat)
+                ax.set_ylim(0, 1)
+                ax.set_xlabel("Epoch")
+                ax.set_ylabel("Accuracy")
+            # turn off extras
+            for extra in range(n, rows * cols):
+                axes[extra // cols][extra % cols].axis('off')
+            # single legend on top
+            handles, labels = axes[0][0].get_legend_handles_labels() if n else ([], [])
+            if handles:
+                fig.legend(handles, labels, loc="upper center", ncol=min(4, len(labels)), frameon=False)
+                fig.tight_layout(rect=[0, 0, 1, 0.95])
+            else:
+                fig.tight_layout()
+            plt.savefig(component_dir / "probe_accuracy.png", dpi=300)
+            plt.close(fig)
 
         # Plot 1 (compact): Overall vs Pos vs Neg accuracy in a single figure
-        if set(["pos_accuracy", "neg_accuracy"]).issubset(df.columns):
+        if not only_confusions and set(["pos_accuracy", "neg_accuracy"]).issubset(df.columns):
             acc_long = pd.melt(
                 df,
                 id_vars=["model", "epoch", "feature", "gru", "channels", "kernel", "component"],
@@ -781,7 +928,7 @@ def run_probes(
             plt.close()
 
         # Plot 2: Signal over control (new)
-        if "signal_over_control" in df.columns:
+        if not only_confusions and "signal_over_control" in df.columns:
             plt.figure(figsize=(10, 6))
             sns.lineplot(
                 data=df,
@@ -837,7 +984,7 @@ def run_probes(
             plt.close()
 
         # Plot 4: Balanced accuracy
-        if "balanced_accuracy" in df.columns:
+        if not only_confusions and "balanced_accuracy" in df.columns:
             plt.figure(figsize=(10, 6))
             sns.lineplot(
                 data=df,
@@ -856,7 +1003,7 @@ def run_probes(
             plt.close()
 
         # Plot 5: Balanced signal over control
-        if "balanced_signal_over_control" in df.columns:
+        if not only_confusions and "balanced_signal_over_control" in df.columns:
             plt.figure(figsize=(10, 6))
             sns.lineplot(
                 data=df,
@@ -875,7 +1022,7 @@ def run_probes(
             plt.savefig(component_dir / "probe_balanced_signal_over_control.png", dpi=300)
             plt.close()
 
-        # Plot 6: Confusion matrices at final epoch (aggregated across models)
+        # Plot 6a: Confusion matrices at final epoch (aggregated across models)
         final_epoch = int(df["epoch"].max()) if not df.empty else None
         if final_epoch is not None:
             features_sorted = sorted(df["feature"].unique().tolist())
@@ -975,8 +1122,8 @@ def run_probes(
                     axes = [axes]
                 for ax, feat in zip(axes, features_sorted):
                     key_sf = (component, feat)
-                    scores_list = score_store.get(key_sf)
-                    labels_list = label_store.get(key_sf)
+                    scores_list = score_store_final.get(key_sf)
+                    labels_list = label_store_final.get(key_sf)
                     if not scores_list or not labels_list:
                         ax.axis('off')
                         ax.set_title(f"{feat}\n(no scores)")
@@ -998,6 +1145,202 @@ def run_probes(
                 out_path3 = component_dir / f"probe_score_density_epoch_{final_epoch:03d}.png"
                 plt.savefig(out_path3, dpi=300)
                 plt.close()
+
+            # Optional: per-model confusion matrices at each model's final probed epoch
+            for m in model_order:
+                df_m = df[df["model"] == m]
+                if df_m.empty:
+                    continue
+                m_final = int(df_m["epoch"].max())
+                feats_m = sorted(df_m["feature"].unique().tolist())
+                fig_m, axes_m = plt.subplots(1, len(feats_m), figsize=(5*len(feats_m), 4))
+                if len(feats_m) == 1:
+                    axes_m = [axes_m]
+                for ax, feat in zip(axes_m, feats_m):
+                    counts = confusion_counts_by_model.get((m, component, feat, m_final))
+                    if counts is None:
+                        ax.axis('off')
+                        ax.set_title(f"{feat}\n(no data)")
+                        continue
+                    tn = counts.get("tn", 0); fp = counts.get("fp", 0); fn = counts.get("fn", 0); tp = counts.get("tp", 0)
+                    mat = np.array([[tn, fp], [fn, tp]], dtype=float)
+                    total = mat.sum(); pct = mat/total if total>0 else mat
+                    annot = np.empty_like(mat).astype(object)
+                    for i in range(2):
+                        for j in range(2):
+                            annot[i, j] = f"{int(mat[i, j])}\n{(pct[i, j]*100):.1f}%"
+                    sns.heatmap(mat, annot=annot, fmt="", cmap="Blues", cbar=False, ax=ax, vmin=0)
+                    ax.set_title(f"{feat} @ epoch {m_final}")
+                    ax.set_xlabel("Predicted"); ax.set_ylabel("True")
+                    ax.set_xticks([0.5, 1.5], labels=["0", "1"]); ax.set_yticks([0.5, 1.5], labels=["0", "1"])
+                plt.tight_layout()
+                out_path_m = component_dir / f"probe_confusion_matrices_epoch_{m_final:03d}_{m}.png"
+                plt.savefig(out_path_m, dpi=300)
+                plt.close()
+
+        # Plot 6b: Confusion matrices aggregated at each model's best-saved epoch
+        features_sorted = sorted(df["feature"].unique().tolist()) if not df.empty else []
+        if features_sorted:
+            fig, axes = plt.subplots(1, len(features_sorted), figsize=(5*len(features_sorted), 4))
+            if len(features_sorted) == 1:
+                axes = [axes]
+            for ax, feat in zip(axes, features_sorted):
+                counts = confusion_counts_best.get((component, feat))
+                if counts is None:
+                    ax.axis('off')
+                    ax.set_title(f"{feat}\n(no data)")
+                    continue
+                tn = counts.get("tn", 0)
+                fp = counts.get("fp", 0)
+                fn = counts.get("fn", 0)
+                tp = counts.get("tp", 0)
+                mat = np.array([[tn, fp], [fn, tp]], dtype=float)
+                total = mat.sum()
+                pct = mat / total if total > 0 else mat
+                annot = np.empty_like(mat).astype(object)
+                for i in range(2):
+                    for j in range(2):
+                        annot[i, j] = f"{int(mat[i, j])}\n{(pct[i, j]*100):.1f}%"
+                sns.heatmap(mat, annot=annot, fmt="", cmap="Blues", cbar=False, ax=ax, vmin=0)
+                ax.set_title(f"{feat} @ best-epoch (per model)")
+                ax.set_xlabel("Predicted")
+                ax.set_ylabel("True")
+                ax.set_xticks([0.5, 1.5], labels=["0", "1"])
+                ax.set_yticks([0.5, 1.5], labels=["0", "1"])
+            plt.tight_layout()
+            out_path_best = component_dir / "probe_confusion_matrices_best.png"
+            plt.savefig(out_path_best, dpi=300)
+            plt.close()
+
+            # Optional: per-model confusion matrices at each model's best epoch
+            for m in model_order:
+                fig_m, axes_m = plt.subplots(1, len(features_sorted), figsize=(5*len(features_sorted), 4))
+                if len(features_sorted) == 1:
+                    axes_m = [axes_m]
+                any_data = False
+                for ax, feat in zip(axes_m, features_sorted):
+                    counts = confusion_counts_best_by_model.get((m, component, feat))
+                    if counts is None:
+                        ax.axis('off')
+                        ax.set_title(f"{feat}\n(no data)")
+                        continue
+                    any_data = True
+                    tn = counts.get("tn", 0); fp = counts.get("fp", 0); fn = counts.get("fn", 0); tp = counts.get("tp", 0)
+                    mat = np.array([[tn, fp], [fn, tp]], dtype=float)
+                    total = mat.sum(); pct = mat/total if total>0 else mat
+                    annot = np.empty_like(mat).astype(object)
+                    for i in range(2):
+                        for j in range(2):
+                            annot[i, j] = f"{int(mat[i, j])}\n{(pct[i, j]*100):.1f}%"
+                    sns.heatmap(mat, annot=annot, fmt="", cmap="Blues", cbar=False, ax=ax, vmin=0)
+                    ax.set_title(f"{feat} @ best (per {m})")
+                    ax.set_xlabel("Predicted"); ax.set_ylabel("True")
+                    ax.set_xticks([0.5, 1.5], labels=["0", "1"]); ax.set_yticks([0.5, 1.5], labels=["0", "1"])
+                if any_data:
+                    plt.tight_layout()
+                    out_path_mb = component_dir / f"probe_confusion_matrices_best_{m}.png"
+                    plt.savefig(out_path_mb, dpi=300)
+                    plt.close()
+                else:
+                    plt.close(fig_m)
+
+            # Lean summary at best
+            fig, axes = plt.subplots(2, len(features_sorted), figsize=(4.0*len(features_sorted), 6.0))
+            if len(features_sorted) == 1:
+                axes = np.array(axes).reshape(2, 1)
+            for col, feat in enumerate(features_sorted):
+                # overall/pos/neg using the best epoch per model: approximate by taking max per model at its best epoch
+                # Here we simply use the df values at each model's best epoch
+                # Build per-model selector
+                vals_overall = []
+                vals_pos = []
+                vals_neg = []
+                # derive best epoch per model once
+                models = sorted(df["model"].unique().tolist())
+                for m in models:
+                    be, _ = _get_best_and_final_saved_epoch(m, analysis_dir)
+                    if be is None:
+                        continue
+                    sub = df[(df["model"] == m) & (df["epoch"] == int(be)) & (df["feature"] == feat)]
+                    if sub.empty:
+                        continue
+                    vals_overall.append(float(sub["accuracy"].mean()))
+                    if "pos_accuracy" in sub:
+                        vals_pos.append(float(sub["pos_accuracy"].mean()))
+                    if "neg_accuracy" in sub:
+                        vals_neg.append(float(sub["neg_accuracy"].mean()))
+                bar_ax = axes[0, col]
+                yvals = [np.nanmean(vals_overall) if vals_overall else np.nan,
+                         np.nanmean(vals_pos) if vals_pos else np.nan,
+                         np.nanmean(vals_neg) if vals_neg else np.nan]
+                labels3 = ["overall", "+", "−"]
+                colors = sns.color_palette("Set2", n_colors=len(labels3))
+                bar_ax.bar(labels3, yvals, color=colors)
+                bar_ax.set_ylim(0, 1)
+                bar_ax.set_title(f"{feat}")
+                if col == 0:
+                    bar_ax.set_ylabel("Accuracy @ best (per model)")
+                for p in bar_ax.patches:
+                    h = p.get_height()
+                    if np.isfinite(h):
+                        bar_ax.annotate(f"{h:.2f}", (p.get_x()+p.get_width()/2, h), ha='center', va='bottom', fontsize=8)
+                cm_ax = axes[1, col]
+                counts = confusion_counts_best.get((component, feat))
+                if counts is None:
+                    cm_ax.axis('off')
+                    cm_ax.set_title("no data")
+                else:
+                    tn = counts.get("tn", 0)
+                    fp = counts.get("fp", 0)
+                    fn = counts.get("fn", 0)
+                    tp = counts.get("tp", 0)
+                    mat = np.array([[tn, fp], [fn, tp]], dtype=float)
+                    total = mat.sum()
+                    pct = mat / total if total > 0 else mat
+                    annot = np.empty_like(mat).astype(object)
+                    for i in range(2):
+                        for j in range(2):
+                            annot[i, j] = f"{int(mat[i, j])}\n{(pct[i, j]*100):.1f}%"
+                    sns.heatmap(mat, annot=annot, fmt="", cmap="Blues", cbar=False, ax=cm_ax, vmin=0)
+                    cm_ax.set_xlabel("Predicted")
+                    if col == 0:
+                        cm_ax.set_ylabel("True")
+                    cm_ax.set_xticks([0.5, 1.5], labels=["0", "1"])
+                    cm_ax.set_yticks([0.5, 1.5], labels=["0", "1"])
+            plt.tight_layout()
+            out_path2b = component_dir / "probe_feature_summary_best.png"
+            plt.savefig(out_path2b, dpi=300)
+            plt.close()
+
+            # Score density at best
+            fig, axes = plt.subplots(1, len(features_sorted), figsize=(4.0*len(features_sorted), 3.5))
+            if len(features_sorted) == 1:
+                axes = [axes]
+            for ax, feat in zip(axes, features_sorted):
+                key_sf = (component, feat)
+                scores_list = score_store_best.get(key_sf)
+                labels_list = label_store_best.get(key_sf)
+                if not scores_list or not labels_list:
+                    ax.axis('off')
+                    ax.set_title(f"{feat}\n(no scores)")
+                    continue
+                scores = np.concatenate([s for s in scores_list if s.size > 0])
+                labels_np = np.concatenate(labels_list)
+                if scores.size == 0 or labels_np.size == 0:
+                    ax.axis('off')
+                    ax.set_title(f"{feat}\n(no scores)")
+                    continue
+                df_scores = pd.DataFrame({"score": scores, "label": labels_np})
+                sns.kdeplot(data=df_scores[df_scores["label"] == 0], x="score", ax=ax, label="true 0", fill=True, alpha=0.5)
+                sns.kdeplot(data=df_scores[df_scores["label"] == 1], x="score", ax=ax, label="true 1", fill=True, alpha=0.5)
+                ax.axvline(0.5, color='gray', linestyle='--', linewidth=1)
+                ax.set_xlim(0, 1)
+                ax.set_title(feat)
+                ax.legend(fontsize=8)
+            plt.tight_layout()
+            out_path3b = component_dir / "probe_score_density_best.png"
+            plt.savefig(out_path3b, dpi=300)
+            plt.close()
 
 
 def main() -> None:

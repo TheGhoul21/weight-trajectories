@@ -45,17 +45,28 @@ Loads extracted data and generates:
 3. **PHATE embeddings** — 2D projection of hidden states colored by features
 4. **Logistic regression probes with control tasks** — train classifiers on hidden states to predict board features, with permuted-label controls to validate signal significance; metrics include accuracy, F1, balanced accuracy, ROC-AUC, Average Precision, and signal-over-control variants.
 
+Best vs final epoch handling
+- The analysis automatically detects each model’s best validation-loss epoch from `checkpoints/<model>/training_history.json` (using `epochs_saved` indices).
+- Probe visualizations include the requested probe epochs, plus each model’s own best and final saved epochs.
+- Confusion matrices are produced for: (a) the final probed epoch, and (b) an aggregate across models at their individual best epochs.
+
 ## Outputs
 
 ### Figures
 - **gate_mean_trajectories.png** – two stacked line plots (update mean, reset mean) per model across epochs; legend lists the nine architectures.
 - **timescale_heatmap.png** – heatmap of the median GRU integration timescale at the final epoch, indexed by channels (rows) and GRU size (columns).
 - **phate_epoch_XXX_<feature>.png** – 3×3 grid (one panel per model) of PHATE embeddings of hidden samples at epoch `XXX`; colour encodes the requested board feature (e.g. `move_index`).
-- **probe_accuracy.png** – logistic-probe accuracy over epochs; hue differentiates features, line style differentiates GRU size.
+- **probe_accuracy.png** – facet-by-feature plot; each subplot shows accuracy over epochs for all models (one line per model) with a shared legend on top. Much more readable than a single crowded panel.
 - **probe_signal_over_control.png** – difference between real and control task accuracy; positive values indicate genuine signal above chance.
 - **probe_comparison.png** – side-by-side comparison of real probe accuracy (left) vs control task accuracy with permuted labels (right).
 - **probe_balanced_accuracy.png** – balanced (macro-averaged) accuracy over epochs; robust to heavy class imbalance (e.g., rare immediate wins).
 - **probe_balanced_signal_over_control.png** – balanced accuracy minus control balanced accuracy; highlights genuine signal under skew.
+- **probe_confusion_matrices_epoch_XXX.png** – confusion matrices aggregated across models at the final probed epoch `XXX` (per feature panels).
+- **probe_feature_summary_epoch_XXX.png** – for the same final epoch: bar summaries (overall/+/-) above the per-feature confusion matrices.
+- **probe_score_density_epoch_XXX.png** – KDE score densities (positive vs negative) at the final probed epoch.
+- **probe_confusion_matrices_best.png** – confusion matrices aggregated across models, each at its own best validation-loss epoch (per feature panels).
+- **probe_feature_summary_best.png** – bar summaries (overall/+/-) and confusion matrices for the best-epoch aggregation.
+- **probe_score_density_best.png** – KDE score densities (positive vs negative) for the best-epoch aggregation.
 - **probe_results.csv** – long-form table `[model, epoch, feature, component, accuracy, f1, control_accuracy, signal_over_control, channels, gru, kernel]`; GRU results write to the output directory (or `gru/` when multiple components are requested), while CNN-specific probes land under `cnn/`.
    - Additional columns: `balanced_accuracy`, `roc_auc`, `average_precision`, `majority_baseline`, `adjusted_accuracy`, `control_balanced_accuracy`, `control_roc_auc`, `control_average_precision`, `balanced_signal_over_control`.
 
@@ -204,8 +215,7 @@ C128     5.8     7.6     10.5
 **Axes**:
 - X: Epoch number
 - Y: Test accuracy (0 to 1)
-- Hue: Feature being probed (current_player, immediate_win_current, etc.)
-- Line style: GRU size (solid/dashed/dotted for 32/64/128)
+- Facets: one subplot per feature (easier to read); within each subplot, each model is a line with its own color and a shared legend across the figure
 
 **Baseline performance**:
 - Binary features: Random chance = 0.5, but heavy class imbalance can make naive accuracy misleading (e.g., always predicting 0 for `immediate_win_*` can yield very high accuracy because wins are rare).
@@ -368,6 +378,12 @@ Signal over control: 0.10
 - **Wide gap**: Strong, validated encoding
 - **Narrow gap**: Weak or questionable signal
 - **Control rising over epochs**: Warning sign of overfitting to noise
+
+### Confusion matrices: final vs best epochs
+
+- Final-epoch matrices (files ending with `epoch_XXX`) summarize performance at the last probed epoch across models.
+- Best-epoch matrices (`probe_confusion_matrices_best.png`) aggregate confusion counts by taking, for each model, the epoch with the minimum validation loss; this avoids mixing different training stages and produces a fairer “best-achieved” snapshot across architectures.
+- Use the “best” variants when you want cross-model comparability at their strongest checkpoint; use the “epoch_XXX” variants to inspect a specific shared epoch.
 
 ### Cross-plot analysis
 

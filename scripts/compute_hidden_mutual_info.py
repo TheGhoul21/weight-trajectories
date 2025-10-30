@@ -124,6 +124,54 @@ def list_hidden_files(model_dir: Path) -> List[Tuple[int, Path]]:
     return files
 
 
+def _load_training_history_best_saved_epoch(model_name: str, analysis_dir: Path) -> Tuple[int | None, int | None]:
+    """
+    Given a model name (matching a directory under both analysis_dir and checkpoints/),
+    return a tuple (best_saved_epoch, final_saved_epoch) based on checkpoints/<model>/training_history.json.
+
+    - best_saved_epoch is the epoch in "epochs_saved" with the lowest val_loss at that epoch index.
+    - final_saved_epoch is max(epochs_saved) if present, otherwise the max epoch seen in hidden_samples.
+
+    If the history file is missing, fall back to inferring from hidden_samples under analysis_dir/<model>/hidden_samples.
+    """
+    try:
+        # Resolve history path even if checkpoint directories are timestamped
+        history_path = Path("checkpoints") / model_name / "training_history.json"
+        if not history_path.exists():
+            candidates = sorted(Path("checkpoints").glob(f"{model_name}_*/training_history.json"))
+            if candidates:
+                history_path = max(candidates, key=lambda p: (p.stat().st_mtime, str(p)))
+        if history_path.exists():
+            with history_path.open("r") as f:
+                hist = json.load(f)
+            val_loss = hist.get("val_loss", [])
+            epochs_saved = hist.get("epochs_saved")
+            if not epochs_saved:
+                # Fallback: infer from available hidden_samples
+                model_dir = analysis_dir / model_name
+                files = list_hidden_files(model_dir)
+                epochs_saved = [e for e, _ in files]
+            best_e = None
+            best_v = float("inf")
+            for e in epochs_saved or []:
+                idx = int(e) - 1
+                if 0 <= idx < len(val_loss):
+                    v = val_loss[idx]
+                    if v < best_v:
+                        best_v = v
+                        best_e = int(e)
+            final_e = int(max(epochs_saved)) if epochs_saved else None
+            return best_e, final_e
+    except Exception:
+        pass
+    # Last resort: infer both from hidden_samples only
+    files = list_hidden_files(analysis_dir / model_name)
+    if not files:
+        return None, None
+    epochs = [e for e, _ in files]
+    return (min(epochs) if epochs else None), (max(epochs) if epochs else None)
+
+
 def load_hidden_samples(
     npz_path: Path, max_samples: int, rng: np.random.Generator
 ) -> Tuple[np.ndarray, np.ndarray, List[str]]:
@@ -265,6 +313,59 @@ def plot_final_epoch_heatmap(df: pd.DataFrame, output_path: Path) -> None:
     plt.close()
 
 
+def plot_best_epoch_heatmap(df: pd.DataFrame, analysis_dir: Path, output_path: Path) -> None:
+    """Plot MI heatmap at each model's best validation epoch (based on checkpoints history)."""
+    # Determine best epoch per model
+    models = sorted(df["model"].unique())
+    best_epochs: Dict[str, int] = {}
+    # Available epochs per model from df
+    avail_by_model: Dict[str, List[int]] = {
+        m: sorted(df[df["model"] == m]["epoch"].unique().tolist()) for m in models
+    }
+    for m in models:
+        be, _ = _load_training_history_best_saved_epoch(m, analysis_dir)
+        if be is None:
+            continue
+        avail = avail_by_model.get(m, [])
+        if not avail:
+            continue
+        if int(be) in avail:
+            best_epochs[m] = int(be)
+        else:
+            # Snap to nearest available epoch in df
+            best_epochs[m] = int(min(avail, key=lambda e: abs(e - int(be))))
+    if not best_epochs:
+        print("[MI] No best epochs found; skipping best-epoch heatmap.")
+        return
+    # Select rows matching best epoch per model
+    parts = []
+    for m, e in best_epochs.items():
+        sub = df[(df["model"] == m) & (df["epoch"] == e)]
+        if not sub.empty:
+            parts.append(sub)
+    if not parts:
+        print("[MI] No MI rows match best epochs; skipping best-epoch heatmap.")
+        return
+    best_df = pd.concat(parts, ignore_index=True)
+    pivot = best_df.pivot_table(index="feature", columns="model", values="mi")
+    plt.figure(figsize=(max(6, pivot.shape[1] * 0.7), max(4, pivot.shape[0] * 0.6)))
+    sns.heatmap(
+        pivot,
+        annot=True,
+        annot_kws={"size": 8},
+        fmt=".3f",
+        cmap="magma",
+        cbar_kws={"label": "Mutual Information"},
+    )
+    plt.title("Hidden State Mutual Information (best val epoch)")
+    plt.xlabel("Model")
+    plt.ylabel("Feature")
+    plt.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_path, dpi=300)
+    plt.close()
+
+
 def plot_feature_trends(df: pd.DataFrame, features: Iterable[str], output_dir: Path) -> None:
     sns.set_style("whitegrid")
     num_features = len(list(features))
@@ -372,7 +473,7 @@ def plot_per_dimension_mi_heatmaps(
         )
         ax.set_xlabel("Hidden Dimension Index")
         ax.set_ylabel("Feature")
-        ax.set_title(f"Per-Dimension MI: {model_name} (final epoch)")
+        ax.set_title(f"Per-Dimension MI: {model_name}")
 
         # Annotate top dimensions
         for feat_idx, feature in enumerate(available_features):
@@ -473,7 +574,7 @@ def plot_high_mi_dimension_values(
             ax = axes[extra // cols][extra % cols]
             ax.axis("off")
 
-        fig.suptitle(f"High-MI Dimension Values: {model_name} (final epoch)", fontsize=14)
+        fig.suptitle(f"High-MI Dimension Values: {model_name}", fontsize=14)
         fig.tight_layout(rect=[0, 0.02, 1, 0.97])
 
         safe_name = model_name.replace("/", "_")
@@ -492,10 +593,13 @@ def main() -> None:
 
     rows: List[Dict[str, object]] = []
 
-    # Track final epoch per-dimension MI and hidden samples for new plots
-    per_dim_mi_data: Dict[str, Dict[str, np.ndarray]] = {}  # model -> feature -> mi_array
-    hidden_samples_data: Dict[str, Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]]] = {}  # model -> feature -> (hidden, feature_vals, mi_per_dim)
+    # Track per-dimension MI and hidden samples for plots (final and best)
+    per_dim_mi_data: Dict[str, Dict[str, np.ndarray]] = {}  # model -> feature -> mi_array (final)
+    hidden_samples_data: Dict[str, Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]]] = {}  # model -> feature -> (hidden, feature_vals, mi_per_dim) (final)
+    per_dim_mi_data_best: Dict[str, Dict[str, np.ndarray]] = {}  # model -> feature -> mi_array (best)
+    hidden_samples_data_best: Dict[str, Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]]] = {}  # model -> feature -> (hidden, feature_vals, mi_per_dim) (best)
     model_final_epochs: Dict[str, int] = {}  # Track final epoch per model
+    model_best_epochs: Dict[str, int] = {}
 
     # Precompute task counts for progress/ETA
     model_dirs = sorted(p for p in analysis_dir.iterdir() if p.is_dir())
@@ -526,8 +630,11 @@ def main() -> None:
         if not hidden_files:
             continue
 
-        # Track final epoch for this model
+        # Track final and best epoch for this model
         model_final_epochs[model_dir.name] = max(epoch for epoch, _ in hidden_files)
+        best_e, _final_e_from_hist = _load_training_history_best_saved_epoch(model_dir.name, analysis_dir)
+        if best_e is not None:
+            model_best_epochs[model_dir.name] = int(best_e)
 
         for epoch, npz_path in hidden_files:
             hidden, features, feature_names = load_hidden_samples(npz_path, args.max_samples, rng)
@@ -536,6 +643,7 @@ def main() -> None:
             name_to_idx = {name: idx for idx, name in enumerate(feature_names)}
 
             is_final_epoch = (epoch == model_final_epochs[model_dir.name])
+            is_best_epoch = (model_dir.name in model_best_epochs and epoch == model_best_epochs[model_dir.name])
             # Parallelize MI across features for this (model, epoch)
             with cf.ThreadPoolExecutor(max_workers=args.workers) as executor:
                 futures = {}
@@ -567,22 +675,31 @@ def main() -> None:
                     if done <= interval or done % interval == 0:
                         print(f"[MI] {done}/{total_tasks} | {model_dir.name} | epoch={epoch} | feature={feature} | ETA~{eta_min:.1f}m", flush=True)
 
-                    if is_final_epoch:
+                    if is_final_epoch or is_best_epoch:
                         # Per-dimension MI (can also be parallelized, but compute inline to avoid memory blowup)
                         mi_per_dim, _ = compute_per_dimension_mi(hidden, values, feature)
-                        if model_dir.name not in per_dim_mi_data:
-                            per_dim_mi_data[model_dir.name] = {}
-                        per_dim_mi_data[model_dir.name][feature] = mi_per_dim
-                        if model_dir.name not in hidden_samples_data:
-                            hidden_samples_data[model_dir.name] = {}
-                        hidden_samples_data[model_dir.name][feature] = (hidden, values, mi_per_dim)
+                        if is_final_epoch:
+                            if model_dir.name not in per_dim_mi_data:
+                                per_dim_mi_data[model_dir.name] = {}
+                            per_dim_mi_data[model_dir.name][feature] = mi_per_dim
+                            if model_dir.name not in hidden_samples_data:
+                                hidden_samples_data[model_dir.name] = {}
+                            hidden_samples_data[model_dir.name][feature] = (hidden, values, mi_per_dim)
+                        if is_best_epoch:
+                            if model_dir.name not in per_dim_mi_data_best:
+                                per_dim_mi_data_best[model_dir.name] = {}
+                            per_dim_mi_data_best[model_dir.name][feature] = mi_per_dim
+                            if model_dir.name not in hidden_samples_data_best:
+                                hidden_samples_data_best[model_dir.name] = {}
+                            hidden_samples_data_best[model_dir.name][feature] = (hidden, values, mi_per_dim)
                         done += 1
                         elapsed = time.time() - t0
                         avg = elapsed / max(1, done)
                         remaining = max(0, total_tasks - done)
                         eta_min = (remaining * avg) / 60.0
                         if done % interval == 0:
-                            print(f"[MI] per-dim {done}/{total_tasks} | {model_dir.name} | epoch={epoch} | feature={feature} | ETA~{eta_min:.1f}m", flush=True)
+                            which = "final" if is_final_epoch else ("best" if is_best_epoch else "")
+                            print(f"[MI] per-dim {done}/{total_tasks} | {model_dir.name} | epoch={epoch} ({which}) | feature={feature} | ETA~{eta_min:.1f}m", flush=True)
 
     if not rows:
         print("No mutual information results computed.")
@@ -596,14 +713,25 @@ def main() -> None:
 
     # Generate existing plots
     plot_final_epoch_heatmap(df, output_dir / "mi_heatmap_final.png")
+    # New: best-epoch heatmap (per model based on checkpoints history)
+    plot_best_epoch_heatmap(df, analysis_dir, output_dir / "mi_heatmap_best.png")
     plot_feature_trends(df, args.features, output_dir)
 
     # Generate new per-dimension plots
     print("\nGenerating per-dimension MI heatmaps...")
     plot_per_dimension_mi_heatmaps(per_dim_mi_data, args.features, output_dir)
+    if per_dim_mi_data_best:
+        # Save into a subfolder to avoid clobbering final-epoch plots
+        best_dir = output_dir / "best_epoch"
+        best_dir.mkdir(parents=True, exist_ok=True)
+        plot_per_dimension_mi_heatmaps(per_dim_mi_data_best, args.features, best_dir)
 
     print("\nGenerating high-MI dimension value plots...")
     plot_high_mi_dimension_values(hidden_samples_data, args.features, output_dir)
+    if hidden_samples_data_best:
+        best_dir = output_dir / "best_epoch"
+        best_dir.mkdir(parents=True, exist_ok=True)
+        plot_high_mi_dimension_values(hidden_samples_data_best, args.features, best_dir)
 
     summary = {
         "analysis_dir": str(analysis_dir),

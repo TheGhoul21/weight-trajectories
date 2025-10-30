@@ -8,6 +8,10 @@ How to Run
 - CLI: `./wt.sh observability mi` (runs `scripts/compute_hidden_mutual_info.py` after analyze).
 - Libraries: scikit‑learn (`sklearn.feature_selection.mutual_info_classif`, `mutual_info_regression`); see [Methods](../reference/methods.md).
 
+Best vs Final Epochs
+- MI heatmaps are now produced at both the final saved epoch and at each model's best validation‑loss epoch (from `training_history.json`).
+- Per‑dimension MI and dimension‑value plots are emitted for final epochs and for best epochs under `best_epoch/`.
+
 ## Conceptual Foundation
 
 Mutual information quantifies statistical dependence between variables without assuming linear relationships. Applied to GRU hidden states, MI analysis reveals what information the network encodes and how it distributes that information across neurons. Unlike linear probes, which test only linear accessibility, MI detects any form of dependency—including nonlinear transformations and distributed codes.

@@ -49,6 +49,8 @@ analyze (plots + linear probes)
   - timescale_heatmap.png
   - phate_epoch_XXX_<feature>.png (unless skipped)
   - probe_results.csv and probe_accuracy.png (per requested component; CNN probes write under `cnn/`)
+  - probe_confusion_matrices_epoch_XXX.png, probe_feature_summary_epoch_XXX.png, probe_score_density_epoch_XXX.png (final probed epoch)
+  - probe_confusion_matrices_best.png, probe_feature_summary_best.png, probe_score_density_best.png (aggregated across models at their own best validation-loss epoch)
 
 mutual information (run within analyze)
 - `scripts/compute_hidden_mutual_info.py` is executed automatically after analyze completes
@@ -62,11 +64,16 @@ mutual information (run within analyze)
   - **Overview plots** (all models, all epochs):
     - mi_results.csv — long-form table: model/epoch/feature/mi/type
     - mi_heatmap_final.png — cross-model comparison at final epoch
+    - mi_heatmap_best.png — cross-model comparison at each model’s best validation-loss epoch
     - mi_trends.png — MI evolution over training per feature
     - mi_metadata.json — run parameters
-  - **Per-dimension analysis** (per model, final epoch only):
-    - mi_per_dimension_<model>.png — heatmap of MI per hidden dimension; ★ marks best dimension
-    - mi_dimension_values_<model>.png — violin/scatter plots showing HOW best dimension encodes each feature
+  - **Per-dimension analysis** (per model, final and best epochs):
+    - mi_per_dimension_<model>.png — per-dimension MI heatmap at final epoch; ★ marks best dimension
+    - mi_dimension_values_<model>.png — violin/scatter plots (final)
+    - best_epoch/mi_per_dimension_<model>.png and best_epoch/mi_dimension_values_<model>.png — best-epoch variants
+
+Notes on epoch selection
+- Best epoch is derived from `checkpoints/<model>/training_history.json` using `epochs_saved` to index into `val_loss` and select the minimum; final epoch is the maximum saved epoch.
 
 fixed (find fixed points / stability per epoch)
 - Options
