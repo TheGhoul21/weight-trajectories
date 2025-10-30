@@ -156,7 +156,8 @@ dataset/Alpha-Zero-algorithm-for-Connect-4-game/.venv/bin/python3 src/train.py \
   --cnn-channels 16 \
   --gru-hidden 8 \
   --kernel-size 3 \
-  --save-every 5
+  --save-every 5 \
+  --weight-decay 1e-4   # Optional L2 regularization via optimizer
 ```
 
 ## Understanding PHATE Visualizations

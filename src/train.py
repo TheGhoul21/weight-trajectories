@@ -398,6 +398,7 @@ def main():
     # Training
     parser.add_argument("--epochs", type=int, default=100, help="Number of epochs (default: 100)")
     parser.add_argument("--lr", type=float, default=0.001, help="Learning rate (default: 0.001)")
+    parser.add_argument("--weight-decay", type=float, default=0.0, help="Weight decay (L2) for optimizer (default: 0.0)")
     parser.add_argument("--policy-weight", type=float, default=1.0, help="Policy loss weight")
     parser.add_argument("--value-weight", type=float, default=1.0, help="Value loss weight")
 
@@ -471,6 +472,7 @@ def main():
             gru_hidden = cfg.pop('gru_hidden', args.gru_hidden)
             epochs = cfg.pop('epochs', args.epochs)
             lr = cfg.pop('lr', args.lr)
+            weight_decay = cfg.pop('weight_decay', args.weight_decay)
             save_every = cfg.pop('save_every', args.save_every)
             kernel_size = cfg.pop('kernel_size', args.kernel_size)
             policy_weight = cfg.pop('policy_weight', args.policy_weight)
@@ -489,6 +491,7 @@ def main():
                     'gru_hidden': int(gru_hidden),
                     'epochs': int(epochs),
                     'lr': float(lr),
+                    'weight_decay': float(weight_decay),
                     'save_every': int(save_every),
                     'kernel_size': int(kernel_size),
                     'policy_weight': float(policy_weight),
@@ -506,6 +509,7 @@ def main():
             'gru_hidden': args.gru_hidden,
             'epochs': args.epochs,
             'lr': args.lr,
+            'weight_decay': args.weight_decay,
             'save_every': args.save_every,
             'kernel_size': args.kernel_size,
             'policy_weight': args.policy_weight,
@@ -533,6 +537,7 @@ def main():
         batch_size = run['batch_size']
         epochs = run['epochs']
         lr = run['lr']
+        weight_decay = run['weight_decay']
         save_every = run['save_every']
         policy_weight = run['policy_weight']
         value_weight = run['value_weight']
@@ -555,7 +560,7 @@ def main():
             batch_size,
             seed=loader_seed if loader_seed is not None else run_seed,
         )
-        optimizer = optim.Adam(model.parameters(), lr=lr)
+        optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         checkpoint_dir = Path(args.checkpoint_dir) / f"k{kernel_size}_c{channels}_gru{gru_hidden}_{timestamp}"

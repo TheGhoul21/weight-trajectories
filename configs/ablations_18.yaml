@@ -218,3 +218,18 @@ k3_gru_128:
     - k3_c16_gru128
     - k3_c64_gru128
     - k3_c256_gru128
+
+# Kernel 3x3 aggregate with weight decay applied to all 9 k3 models
+k3_all_wd1e-4:
+  name: kernel3_wd1e-4
+  includes:
+    - k3_c16_gru8
+    - k3_c16_gru32
+    - k3_c16_gru128
+    - k3_c64_gru8
+    - k3_c64_gru32
+    - k3_c64_gru128
+    - k3_c256_gru8
+    - k3_c256_gru32
+    - k3_c256_gru128
+  weight_decay: 0.0001
