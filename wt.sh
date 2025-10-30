@@ -98,9 +98,9 @@ EOF
 }
 
 cmd_train_all() {
-  local data_path="${WT_DATASET:-data/connect4_10k_games.pt}"
+  local data_path="${WT_DATASET:-data/connect4_sequential_10k_games.pt}"
   local epochs="${WT_EPOCHS:-100}"
-  local save_every="${WT_SAVE_EVERY:-10}"
+  local save_every="${WT_SAVE_EVERY:-1}"
   local kernel_size="${WT_KERNEL_SIZE:-3}"
   local seed="${WT_SEED:-37}"
   local extra_args=()
@@ -162,7 +162,7 @@ cmd_train_all() {
       --save-every "${save_every}" \
       --batch-size "${batch_size}" \
       --seed "${seed}" \
-      "${extra_args[@]}"
+      ${extra_args[@]+"${extra_args[@]}"}
   done
 }
 
