@@ -52,4 +52,4 @@
   * [Architecture Diagrams](/reference/architecture_diagrams)
 
 * **Links**
-  * [GitHub Repository](https://github.com/)
+  * [GitHub Repository](https://github.com/TheGhoul21/weight-trajectories)

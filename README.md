@@ -1,178 +1,168 @@
-# Weight Trajectories: Connect-4 Neural Network Training
+# Weight Trajectories
 
-Training ResNet+GRU models on Connect-4 and tracking weight evolution during training.
+A research framework for analyzing the learning dynamics of neural networks through weight trajectory analysis. Train ResNet+GRU models on Connect-4 and study how network representations evolve during learning.
+
+## What is this?
+
+This project trains neural networks on Connect-4 using AlphaZero-style self-play data, then analyzes how the network's internal representations change during training. We track:
+
+- **Weight trajectories**: How parameters evolve through training
+- **Representation dynamics**: How hidden states organize information over time
+- **Observability analysis**: What information is accessible at different network layers
+- **Mutual information**: How much game state information is preserved in representations
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.10+
+- [uv](https://github.com/astral-sh/uv) (recommended) or pip
+
+### Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/TheGhoul21/weight-trajectories.git
+cd weight-trajectories
+
+# Install dependencies with uv
+uv sync
+
+# Or with pip
+pip install -e .
+```
+
+### Basic Workflow
+
+```bash
+# 1. See all available commands
+./wt.sh help
+
+# 2. Generate a small test dataset (20 games, ~20 seconds)
+./wt.sh dataset flat --test-run
+
+# 3. Test the model architecture
+./wt.sh model
+
+# 4. Train all model configurations
+./wt.sh train-all --data data/connect4_10k_games.pt
+
+# 5. Analyze the results
+./wt.sh visualize --checkpoint checkpoints/k3_c16_gru8_*/
+```
+
+## Model Architecture
+
+**ResNet+GRU hybrid:**
+- ResNet backbone processes Connect-4 board states (6×7 grid)
+- GRU layer maintains temporal/sequential information
+- Dual heads predict move policy and position value
+
+**Configurable parameters:**
+- Kernel sizes: 3×3, 6×6
+- CNN channels: 16, 64, 256
+- GRU hidden size: 8, 32, 128
+
+**Total configurations:** 18 models (2 kernels × 3 channels × 3 GRU sizes)
+
+## Key Features
+
+### Training & Data
+- Generate datasets from AlphaZero self-play
+- Train multiple model configurations in parallel
+- Track weights at regular intervals for trajectory analysis
+- Reproducible training with seed control
+
+### Analysis Tools
+- **Trajectory Embedding**: Visualize weight evolution in low-dimensional space (UMAP, t-SNE, PHATE)
+- **CKA Similarity**: Compare representations across models and training stages
+- **Observability Analysis**: Measure information flow through GRU hidden states
+- **Mutual Information**: Quantify what information representations capture
+- **Fixed-Point Analysis**: Study attractor dynamics in recurrent networks
+
+### Visualization
+- Training curves and metrics
+- Weight trajectory plots
+- Representation similarity matrices
+- Gate activation patterns
+- Temporal dynamics with T-PHATE
+
+## Documentation
+
+Comprehensive documentation is available in [`docs/`](docs/):
+
+- [Getting Started Guide](docs/manual/getting_started.md)
+- [Command Reference](docs/manual/commands/README.md)
+- [Analysis Workflows](docs/manual/workflows/README.md)
+- [Plots & Visualizations](docs/manual/plots/README.md)
+- [Scientific Background](docs/scientific/README.md)
 
 ## Project Structure
 
 ```
 weight-trajectories/
-├── dataset/
-│   └── Alpha-Zero-algorithm-for-Connect-4-game/  # External AlphaZero repo
-├── data/                                          # Generated datasets
-│   ├── connect4_10k_games.pt                     # Full dataset
-│   └── samples/                                  # Test datasets
-├── src/                                           # Source code
-│   ├── model.py                                   # ResNet+GRU architecture
-│   └── train.py                                   # Training script
-├── scripts/                                       # Utility scripts
-│   ├── generate_connect4_dataset.py              # Dataset generation
-│   └── train_all_models.sh                       # Train all configs
-├── configs/                                       # Training configurations
-│   └── train_configs.yaml
-├── checkpoints/                                   # Saved models & weights
-├── models/                                        # Final trained models
-└── README.md
+├── src/                    # Core source code
+│   ├── model.py           # Neural network architectures
+│   ├── train.py           # Training loop
+│   └── utils/             # Utility modules
+├── scripts/               # Analysis & visualization scripts
+├── docs/                  # Full documentation
+├── data/                  # Generated datasets
+├── checkpoints/           # Training checkpoints & weight trajectories
+├── wt.sh                  # Unified CLI entrypoint
+└── pyproject.toml        # Project dependencies
 ```
 
-## Quick Start
-
-### 0. Explore the CLI
-
-All tooling now hangs off `wt.sh`. Run `./wt.sh help` for the command menu. Set `PYTHON_BIN` if you need a specific interpreter.
+## Example Commands
 
 ```bash
-./wt.sh help
+# Generate a full dataset (10k games, ~1.5 hours)
+./wt.sh dataset flat --num-games 10000 --cpus 4
+
+# Train a single model
+./wt.sh train --data data/connect4_10k_games.pt \
+  --cnn-channels 16 64 256 --gru-hidden 32 \
+  --epochs 100 --save-every 10
+
+# Compute checkpoint metrics
+./wt.sh metrics --checkpoint checkpoints/k3_c64_gru32_*/
+
+# Run GRU observability analysis
+./wt.sh observability extract --checkpoint checkpoints/k3_c64_gru32_*/
+./wt.sh observability analyze
+
+# Compare models with CKA
+./wt.sh cka wizard
+
+# Generate analysis report
+./wt.sh report --checkpoint checkpoints/k3_c64_gru32_*/
 ```
 
-### 1. Generate Dataset
+## Research Applications
 
-**Test run** (20 games, 2 CPUs, ~20 seconds):
-```bash
-./wt.sh dataset flat --test-run
-```
+This framework is designed for studying:
 
-**Full dataset** (10,000 games, 4 CPUs, ~1.5 hours):
-```bash
-./wt.sh dataset flat \
-  --num-games 10000 \
-  --cpus 4 \
-  --simulations 200
-```
-
-### 2. Test Model Architecture
-
-```bash
-./wt.sh model
-```
-
-### 3. Train Models
-
-**Single model:**
-```bash
-./wt.sh train \
-  --data data/connect4_10k_games.pt \
-  --cnn-channels 16 64 256 \
-  --gru-hidden 32 \
-  --epochs 100 \
-  --save-every 10
-```
-
-**All three configurations:**
-```bash
-./wt.sh train-all --data data/connect4_10k_games.pt
-```
-
-## Model Architecture
-
-**Input:** (batch, 3, 6, 7) - Board state [yellow_pieces, red_pieces, turn_indicator]
-
-**ResNet Backbone:**
-- Single ResNet block with configurable kernel size (3×3 or 6×6)
-- Configurable output channels (16, 64, or 256)
-- BatchNorm + ReLU, 'same' padding (preserves 6×7 spatial structure)
-
-**GRU:**
-- Single-layer GRU with configurable hidden size (8, 32, or 128)
-- Processes flattened CNN features
-
-**Heads:**
-- **Policy Head:** Predicts move probabilities (7 columns)
-- **Value Head:** Predicts win probability [-1, 1]
-
-## Ablation Study: 18 Configurations
-
-**Parameters varied:**
-- Kernel size: 3×3, 6×6 (2 options)
-- CNN channels: 16, 64, 256 (3 options)
-- GRU hidden: 8, 32, 128 (3 options)
-- **Total: 2 × 3 × 3 = 18 models**
-
-**Parameter counts:**
-| Kernel | Channels | GRU | Parameters |
-|--------|----------|-----|------------|
-| 3×3    | 16       | 8   | 20K        |
-| 3×3    | 256      | 128 | 4.8M       |
-| 6×6    | 16       | 8   | 29K        |
-| 6×6    | 256      | 128 | 6.6M       |
-
-## Weight Tracking
-
-Weights are saved every 10 epochs by default:
-```
-checkpoints/k3_c64_gru32_20251022_033045/
-├── weights_epoch_0010.pt
-├── weights_epoch_0020.pt
-├── ...
-├── weights_epoch_0100.pt
-├── best_model.pt
-└── training_history.json
-```
-
-Each checkpoint contains the full model state dict for trajectory analysis.
-
-**Training all 18 ablations:**
-```bash
-./scripts/train_all_18_ablations.sh
-```
-
-This will create 18 separate checkpoint directories, one for each configuration.
-
-## Dataset Format
-
-PyTorch `.pt` files containing:
-```python
-{
-    'states': torch.FloatTensor,    # (N, 3, 6, 7) board states
-    'policies': torch.FloatTensor,  # (N, 7) MCTS policy targets
-    'values': torch.FloatTensor,    # (N, 1) game outcome values
-    'metadata': dict                # Generation info
-}
-```
-
-**Generation Parameters:**
-- MCTS Simulations: 200-250 per move (high quality)
-- Dirichlet Noise: Enabled for exploration
-- Data Augmentation: Horizontal board flipping
-- Source Model: Trained AlphaZero ResNet (ELO 1800+)
-
-**Expected for 10,000 games:**
-- Total positions: ~400K-500K (with augmentation)
-- File size: ~200-300 MB
-- Generation time: ~1.5 hours (5 CPUs, 250 sims)
-
-## Training Output
-
-Training logs show:
-- Train/Val loss (combined policy + value)
-- Policy loss (cross-entropy with MCTS targets)
-- Value loss (MSE with game outcomes)
-
-Example:
-```
-Epoch  10/100 | Train Loss: 1.2345 | Val Loss: 1.3456 | Val Policy: 1.1000 | Val Value: 0.2456
-  -> Saved weights to weights_epoch_0010.pt
-```
+- **Learning dynamics**: How do representations emerge during training?
+- **Architecture comparison**: Which designs learn more efficiently?
+- **Information theory**: What information do networks preserve?
+- **Recurrent dynamics**: How do GRUs process sequential game states?
+- **Observability**: Can we predict final performance from early training?
 
 ## Requirements
 
-- Python 3.13+
-- PyTorch 2.9+
-- NumPy 2.3+
-- See `dataset/Alpha-Zero-algorithm-for-Connect-4-game/pyproject.toml` for dependencies
+- Python 3.10 or later
+- PyTorch 2.2+
+- See [pyproject.toml](pyproject.toml) for full dependency list
 
 ## Citation
 
-AlphaZero implementation:
+AlphaZero implementation for dataset generation:
 - [Alpha-Zero-algorithm-for-Connect-4-game](https://github.com/Bruneton/Alpha-Zero-algorithm-for-Connect-4-game)
 - Authors: Jean-Philippe Bruneton, Adèle Douin, Vincent Reverdy
 - License: BSD 3-Clause
+
+## License
+
+MIT License - see [LICENSE](LICENSE) for details.
+
+This project is completely open and free. You can use, modify, and distribute it however you want.
