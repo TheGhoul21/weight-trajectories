@@ -1,31 +1,80 @@
-# Scientific Field Guide
+# Neural Network Interpretability Handbook
 
-Picture yourself stepping into the lab after an overnight Connect Four training run. The user manual tells you which scripts to fire up; this field guide explains *why* those scripts matter, *what* to look for, and *how* the results tie back to the science of recurrent networks. Every page in `docs/scientific/` is designed to be read quickly, then revisited when you need deeper derivations.
-
----
-
-## What Lives Here
-
-- Rigorously stated concepts (fixed points, manifolds, mutual information) framed with practical motivation.
-- Story-driven guides that walk from research questions → diagnostics → interpretation.
-- Cross-links back to code (`scripts/…`, `src/…`) and forwards to open problems worth exploring.
-
-The documents are intentionally short and interlinked—skim the story you need, then dive into the math section referenced in-line.
+**Note**: This documentation has been reorganized and expanded. The new structure provides comprehensive coverage of interpretability methods across all architectures while maintaining the rigorous treatment of RNN dynamics that originated this handbook.
 
 ---
 
-## Choose Your Path
+## Quick Navigation
 
-1. **Conceptual grounding** → `theoretical_foundations.md`  
-   Start with the short “Idea in Brief” boxes, then follow the deep dives if you need the derivations.
-2. **Diagnostic playbooks** → `gru_observability_literature.md`  
-   Walk through a narrative analysis of a training run, with checklists and failure-mode spotlights.
-3. **Method primers** → `mutual_information_theory.md`, `weight_embeddings_theory.md`  
-   Top-down: intuition first, formulas second, implementation links last.
-4. **Worked stories from the literature** → `case_studies.md`  
-   Each case reads like a mini documentary: task summary, what the researchers measured, and how to replicate the insight here.
-5. **Citation pantry** → `references.md`  
-   Grab DOIs, topic clusters, and one-line reminders of why each paper matters.
+**New to interpretability?** Start with the [Beginner's Guide](0_start_here/for_beginners.md)
+
+**Want practical recipes?** See the [Practitioner's Guide](0_start_here/for_practitioners.md)
+
+**Conducting research?** Check the [Researcher's Guide](0_start_here/for_researchers.md)
+
+**Main entry point**: [0_start_here/README.md](0_start_here/README.md)
+
+---
+
+## Document Migration Notes
+
+The original documents have been reorganized:
+
+- **Old README.md** → Now points to new structure
+- **theoretical_foundations.md** → Remains in place; components extracted to [1_foundations/](1_foundations/) and [2_methods/dynamical_analysis/](2_methods/dynamical_analysis/)
+- **case_studies.md** → Components moved to [5_case_studies/recurrent_networks/](5_case_studies/recurrent_networks/)
+- **gru_observability_literature.md** → Moved to [5_case_studies/board_games/connect_four_gru.md](5_case_studies/board_games/)
+- **mutual_information_theory.md** → Moved to [2_methods/probing/mutual_information.md](2_methods/probing/)
+- **weight_embeddings_theory.md** → Moved to [2_methods/dynamical_analysis/trajectory_analysis.md](2_methods/dynamical_analysis/)
+- **references.md** → Moved to [references/bibliography.md](references/bibliography.md)
+
+---
+
+## What Lives Here (Expanded)
+
+The handbook now covers:
+
+- **All major architectures**: CNNs, RNNs, Transformers, MLPs
+- **20+ interpretability techniques**: From Grad-CAM to circuit analysis
+- **30+ case studies**: Vision, NLP, RL, neuroscience
+- **Hands-on tutorials**: Interactive notebooks and code recipes
+- **Theoretical foundations**: Information theory, dynamical systems, manifold learning
+- **Tool guides**: Captum, SHAP, TransformerLens, and more
+
+While maintaining:
+- Rigorous treatment of RNN dynamics and fixed-point analysis
+- Connections to neuroscience and dynamical systems theory
+- Practical diagnostic workflows
+- Deep literature integration
+
+---
+
+## Directory Structure
+
+```
+docs/scientific/
+├── 0_start_here/          # Landing pages for different audiences
+├── 1_foundations/         # Mathematical and conceptual foundations
+├── 2_methods/             # Technique deep-dives
+├── 3_architectures/       # Architecture-specific guides
+├── 4_tools_and_libraries/ # Practical tool documentation
+├── 5_case_studies/        # Real-world examples
+├── 6_tutorials/           # Hands-on notebooks
+├── 7_advanced_topics/     # Cutting-edge research
+└── references/            # Bibliography and reading lists
+```
+
+---
+
+## Original Content (Preserved)
+
+The original GRU/RNN-focused content that started this handbook:
+
+1. **Conceptual grounding** → `theoretical_foundations.md` (still here)
+2. **Diagnostic playbooks** → `gru_observability_literature.md` (still here, will migrate)
+3. **Method primers** → `mutual_information_theory.md`, `weight_embeddings_theory.md` (still here, will migrate)
+4. **Case studies** → `case_studies.md` (still here, will migrate)
+5. **References** → Now at [references/bibliography.md](references/bibliography.md)
 
 ### Quick Menus
 
