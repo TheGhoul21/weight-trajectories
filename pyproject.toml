@@ -15,5 +15,4 @@ dependencies = [
     "scikit-learn>=1.4",
     "umap-learn>=0.5",
     "plotly>=5.20",
-    "p
 ]
