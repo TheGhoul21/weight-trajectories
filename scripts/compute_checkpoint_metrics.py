@@ -259,7 +259,21 @@ def _forward_hidden_vectors(
         for board in boards:
             tensor = board.to(device=device, dtype=torch.float32)
             _, _, hidden = model(tensor)
-            representations.append(hidden.view(-1).cpu().numpy())
+            # GRU returns hidden as (num_layers, batch, hidden_size)
+            # We want a fixed-length vector per input board sample.
+            # If batch>1 (e.g., when a tensor packs multiple boards), pool across batch.
+            if hidden.dim() == 3:
+                # Remove layer dimension
+                hidden2d = hidden.squeeze(0)  # (batch, hidden)
+                if hidden2d.dim() == 1:
+                    vec = hidden2d
+                else:
+                    # Average across batch for a single representation
+                    vec = hidden2d.mean(dim=0)
+            else:
+                # Fallback: flatten then reshape if possible
+                vec = hidden.view(-1)
+            representations.append(vec.cpu().numpy())
 
     return np.stack(representations, axis=0).astype(np.float32, copy=False)
 
