@@ -577,6 +577,12 @@ def _create_comparison_animation(method: str, component: str,
     ax.set_ylabel('Component 2')
     ax.grid(True, alpha=0.3)
 
+    # Add legend
+    for idx, label in enumerate(labels):
+        ax.scatter([], [], c=[color_samples[idx]], s=70, edgecolors="black", linewidths=0.6,
+                   label=label)
+    ax.legend(loc="best", fontsize=8)
+
     epoch_text = ax.text(0.02, 0.97, '', transform=ax.transAxes, fontsize=12, va='top')
 
     def update(frame_idx):

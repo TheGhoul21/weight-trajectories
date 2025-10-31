@@ -5,7 +5,11 @@ Overview
 - Reveals architectural families, regime changes, and overfitting/underfitting patterns across models.
 
 How to Generate
-- `./wt.sh trajectory-embedding [--method umap|tsne|phate|tphate]` (runs `scripts/visualize_trajectory_embedding.py`)
+- 2D default: `./wt.sh trajectory-embedding [--method umap|tsne|phate|tphate]` (runs `scripts/visualize_trajectory_embedding.py`)
+- 3D + animation + interactive options:
+  - `--dims 3` to compute a 3D embedding
+  - `--animate-3d [--anim-frames N --anim-seconds S]` to save a rotating GIF
+  - `--plotly-html <path>` to save an interactive 3D HTML (drag to orbit/zoom)
 - T‑PHATE variant: `--method tphate --time-alpha 3` scales the epoch feature to emphasize temporal continuity
 
 Related Guides
@@ -138,7 +142,9 @@ Each checkpoint plotted as a point with:
 ## Outputs
 - trajectory_embedding_all.png: All models overlaid; color is epoch, marker encodes GRU size (o,s,^), edge color encodes channels
 - trajectory_embedding_by_gru.png: 1×3 facet by GRU size; lines/points per channel; colorbar = epoch
-- trajectory_embedding_3d.png: Optional 3D embedding when available (PCA fallback)
+- trajectory_embedding_3d.png: Static 3D embedding (PHATE/UMAP; PCA fallback when others unavailable)
+- trajectory_embedding_3d_rotate.gif: Rotating camera orbit (when `--animate-3d`)
+- trajectory_embedding_3d.html: Interactive Plotly scene (when `--plotly-html` is provided)
 
 Axes/encodings
 - UMAP/t-SNE/PHATE component 1/2
@@ -158,7 +164,7 @@ Interpreting the panels
 - **Faceted by GRU**
   - Within each subplot, directly compare CNN capacities while holding GRU fixed. If paths align, CNN width has little effect on these metrics; divergence means the CNN is driving behaviour.
 - **3D rendering**
-  - Adds depth for non-linear methods; rotate in an external viewer if you need to inspect crossings.
+  - Adds depth for non-linear methods; use the rotating GIF for quick tours or the interactive HTML to orbit/zoom and inspect crossings.
 
 Reading patterns
 - **Compact clusters** → models share similar training dynamics; good when you expect invariance.
@@ -170,3 +176,21 @@ Tips
 - You can limit epochs with `--epoch-min/--epoch-max/--epoch-step` to focus on salient phases (e.g. early vs late training).
 - Try alternative metrics (add/remove columns in `create_feature_matrix`) when experimenting; the script auto-drops missing ones.
 - Combine with `visualizations/gru_observability/` plots to explain why a particular trajectory segment behaves strangely.
+
+### Example commands
+
+```bash
+# 2D PHATE (default outputs)
+./wt.sh trajectory-embedding --method phate \
+  --metrics-dir diagnostics/trajectory_analysis \
+  --checkpoint-dir checkpoints/save_every_1 \
+  --output-dir visualizations/metric_space
+
+# 3D PHATE + rotating GIF + interactive HTML
+./wt.sh trajectory-embedding --method phate --n-neighbors 10 \
+  --metrics-dir diagnostics/trajectory_analysis \
+  --checkpoint-dir checkpoints/save_every_1 \
+  --output-dir visualizations/metric_space \
+  --dims 3 --animate-3d --anim-frames 180 --anim-seconds 12 \
+  --plotly-html visualizations/metric_space/trajectory_embedding_3d.html
+```
