@@ -1,6 +1,6 @@
 # Neural Network Interpretability Handbook
 
-**Note**: This documentation has been reorganized and expanded. The new structure provides comprehensive coverage of interpretability methods across all architectures while maintaining the rigorous treatment of RNN dynamics that originated this handbook.
+The handbook collects foundational theory, practical techniques, and literature surveys that explain how neural networks learn and behave. Material spans introductory guides through advanced research topics while maintaining the detailed treatment of GRU dynamics that motivated the project.
 
 ---
 
@@ -16,23 +16,9 @@
 
 ---
 
-## Document Migration Notes
+## Handbook Coverage
 
-The original documents have been reorganized:
-
-- **Old README.md** → Now points to new structure
-- **theoretical_foundations.md** → Remains in place; components extracted to [1_foundations/](1_foundations/) and [2_methods/dynamical_analysis/](2_methods/dynamical_analysis/)
-- **case_studies.md** → Components moved to [5_case_studies/recurrent_networks/](5_case_studies/recurrent_networks/)
-- **gru_observability_literature.md** → Moved to [5_case_studies/board_games/connect_four_gru.md](5_case_studies/board_games/)
-- **mutual_information_theory.md** → Moved to [2_methods/probing/mutual_information.md](2_methods/probing/)
-- **weight_embeddings_theory.md** → Moved to [2_methods/dynamical_analysis/trajectory_analysis.md](2_methods/dynamical_analysis/)
-- **references.md** → Moved to [references/bibliography.md](references/bibliography.md)
-
----
-
-## What Lives Here (Expanded)
-
-The handbook now covers:
+The handbook covers:
 
 - **All major architectures**: CNNs, RNNs, Transformers, MLPs
 - **20+ interpretability techniques**: From Grad-CAM to circuit analysis
@@ -66,15 +52,15 @@ docs/scientific/
 
 ---
 
-## Original Content (Preserved)
+## GRU Reference Hub
 
-The original GRU/RNN-focused content that started this handbook:
+For readers concentrating on the Connect Four GRU analysis, the original deep-dive materials sit alongside the broader handbook:
 
-1. **Conceptual grounding** → `theoretical_foundations.md` (still here)
-2. **Diagnostic playbooks** → `gru_observability_literature.md` (still here, will migrate)
-3. **Method primers** → `mutual_information_theory.md`, `weight_embeddings_theory.md` (still here, will migrate)
-4. **Case studies** → `case_studies.md` (still here, will migrate)
-5. **References** → Now at [references/bibliography.md](references/bibliography.md)
+1. **Conceptual grounding** → `theoretical_foundations.md` develops the dynamical-systems perspective that underpins the Connect Four study and informs [1_foundations/](1_foundations/).
+2. **Diagnostic playbooks** → `gru_observability_literature.md` documents the complete Connect Four workflow with measurement checklists and failure modes.
+3. **Method primers** → `mutual_information_theory.md` and `weight_embeddings_theory.md` provide mutual-information estimators and trajectory embedding guidance that complement the treatments in `2_methods/`.
+4. **Case studies** → `case_studies.md` gathers narrative summaries that map directly to the domain-specific chapters in `5_case_studies/`.
+5. **References** → `references.md` offers a concise bibliography; see [references/bibliography.md](references/bibliography.md) for the expanded catalog.
 
 ### Quick Menus
 
@@ -96,6 +82,7 @@ The original GRU/RNN-focused content that started this handbook:
 ## Document Index
 | Document | Role in the field guide | What you gain | Key companion scripts |
 | --- | --- | --- | --- |
+| [`handbook_overview.md`](handbook_overview.md) | Structure map | Directory tour, entry points, and guiding principles | — |
 | [`theoretical_foundations.md`](theoretical_foundations.md) | “Idea → deep dive” cards | Intuitive summaries followed by derivations for gates, attractors, MI, manifolds, neuroscience links | `src/analysis/eigs.py`, `scripts/find_fixed_points.py` (planned) |
 | [`gru_observability_literature.md`](gru_observability_literature.md) | Investigation guide | Narrative walkthroughs, measurement checklists, failure diagnostics | `scripts/extract_gru_dynamics.py`, `scripts/compute_hidden_mutual_info.py` |
 | [`guide_memory_diagnostics.md`](guide_memory_diagnostics.md) | Memory field report | Story-driven checklists for gates, eigenvalues, and timescales | `scripts/extract_gru_dynamics.py` |
