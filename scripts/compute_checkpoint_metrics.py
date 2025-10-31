@@ -125,18 +125,44 @@ def _load_weight_matrix(
 
 
 def _coerce_board_tensor(sample) -> Optional[torch.Tensor]:
-    """Normalize sample into (1, 3, 6, 7) float tensor."""
+    """Try to normalize a candidate sample into a (B, 3, 6, 7) float tensor.
+
+    Notes:
+    - Accepts either a single board (3, 6, 7) -> unsqueezed to (1, 3, 6, 7),
+      or a batch/sequence (B, 3, 6, 7).
+    - Avoids attempting to convert ragged lists (which become numpy.object_)
+      so that callers can recurse into their items instead.
+    """
+    # Torch tensors: handle directly and validate shape
     if isinstance(sample, torch.Tensor):
         tensor = sample.detach().cpu()
-        if tensor.ndim == 3:
-            tensor = tensor.unsqueeze(0)
+        if tensor.ndim == 3 and tensor.shape == (3, 6, 7):
+            return tensor.unsqueeze(0).to(dtype=torch.float32)
         if tensor.ndim == 4 and tensor.shape[1:] == (3, 6, 7):
             return tensor.to(dtype=torch.float32)
         return None
+
+    # Numpy arrays: guard against object dtype before converting to torch
     if isinstance(sample, np.ndarray):
-        return _coerce_board_tensor(torch.from_numpy(sample))
+        # Skip ragged/object arrays; let the caller recurse instead
+        if sample.dtype == np.object_:
+            return None
+        try:
+            return _coerce_board_tensor(torch.from_numpy(sample))
+        except (TypeError, ValueError):
+            return None
+
+    # Python sequences: only attempt numeric coercion when not ragged
     if isinstance(sample, (list, tuple)):
-        return _coerce_board_tensor(np.asarray(sample))
+        try:
+            arr = np.asarray(sample)
+        except Exception:
+            return None
+        # If this produced an object array, it's likely a ragged/nested structure
+        if isinstance(arr, np.ndarray) and arr.dtype != np.object_:
+            return _coerce_board_tensor(arr)
+        return None
+
     return None
 
 
