@@ -1,16 +1,18 @@
 # Mutual Information Analysis
 
-Overview
-- Quantifies statistical dependence between hidden states and game features without assuming linearity. Complements probes by detecting nonlinear and distributed codes.
-- Use aggregate MI to gauge overall encoding, and per‑dimension MI to find specialized neurons.
+**Idea in Brief**: Mutual information (MI) measures how much uncertainty about a
+game feature disappears when you observe a hidden activation. Unlike linear
+probes, MI sees any dependency—nonlinear, distributed, or otherwise—and thus
+reveals representation structure that probes might miss.
 
-How to Run
-- CLI: `./wt.sh observability mi` (runs `scripts/compute_hidden_mutual_info.py` after analyze).
-- Libraries: scikit‑learn (`sklearn.feature_selection.mutual_info_classif`, `mutual_info_regression`); see [Methods](../reference/methods.md).
-
-Best vs Final Epochs
-- MI heatmaps are now produced at both the final saved epoch and at each model's best validation‑loss epoch (from `training_history.json`).
-- Per‑dimension MI and dimension‑value plots are emitted for final epochs and for best epochs under `best_epoch/`.
+**Quick start**:
+- Run `./wt.sh observability mi` to execute
+  `scripts/compute_hidden_mutual_info.py` after the standard analysis stage.
+- Outputs cover both the final checkpoint and the best-validation checkpoint,
+  with per-feature CSVs, heatmaps, and per-dimension activation plots stored
+  under `visualizations/gru_observability/`.
+- For a narrative walkthrough of the workflow and interpretation, see
+  `guide_representation_diagnostics.md`.
 
 ## Conceptual Foundation
 

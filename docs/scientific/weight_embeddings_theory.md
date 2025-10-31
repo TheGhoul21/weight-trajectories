@@ -1,5 +1,10 @@
 # Weight Trajectory Analysis with PHATE
 
+**Idea in Brief**: Training checkpoints form a time-ordered curve through weight
+space. PHATE treats that curve as a manifold, preserving both local continuity
+and global phase changes so that learning dynamics become visible. Use it to
+spot when optimisation takes shortcuts, stalls, or branches across ablations.
+
 ## Overview
 
 Training a neural network traces a path through high-dimensional parameter space. Understanding this trajectory reveals learning dynamics: whether training proceeds smoothly or exhibits phase transitions, whether different architectural components co-evolve or learn at different rates, and how weight changes relate to performance improvements. PHATE (Potential of Heat-diffusion for Affinity-based Transition Embedding) provides a method for visualizing these trajectories while preserving their temporal structure.

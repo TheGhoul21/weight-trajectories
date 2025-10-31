@@ -100,6 +100,9 @@ In practice we estimate the **effective timescale** of unit `i` with:
 
 where `λ_i` is the i-th eigenvalue of the empirical Jacobian (computed per checkpoint using the frozen gates from a batch of trajectories) and `Δt=1` for discrete timesteps. `scripts/extract_gru_dynamics.py` reports gate histograms and the eigenvalue spectrum so that we can track these timescales across training.
 
+For a measurement playbook that follows this derivation step by step, see
+`guide_memory_diagnostics.md`.
+
 ---
 
 ## 2. Fixed Points and Attractors
@@ -267,6 +270,9 @@ Guidelines for Connect Four experiments:
 
 The CLI wrapper in `scripts/compute_hidden_mutual_info.py` implements these practices and caches intermediate datasets under `diagnostics/` for reproducibility.
 
+Practical recipes for deploying these estimators live in
+`guide_representation_diagnostics.md`.
+
 ---
 
 ## 4. Manifold Learning and Trajectory Embedding
@@ -334,6 +340,9 @@ The CLI wrapper in `scripts/compute_hidden_mutual_info.py` implements these prac
 - Misses nonlinear structure
 
 **Recommendation**: Use PHATE as default, validate with PCA/UMAP for sensitivity.
+
+For an interpretive walkthrough of these embeddings, consult
+`guide_representation_diagnostics.md`.
 
 ---
 

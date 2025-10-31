@@ -86,6 +86,10 @@ The original GRU/RNN-focused content that started this handbook:
 
 - **Explaining the project to a newcomer?**  
   Point them to `case_studies.md` Case 1 or 2—fast narratives that show why attractors and manifolds matter.
+- **Diagnosing memory vs overwrite behaviour?**  
+  Follow `guide_memory_diagnostics.md` for a short field report with plots to reproduce.
+- **Tracing how concepts surface in hidden space?**  
+  Use `guide_representation_diagnostics.md` for probes, MI sweeps, and geometry maps.
 
 ---
 
@@ -94,6 +98,8 @@ The original GRU/RNN-focused content that started this handbook:
 | --- | --- | --- | --- |
 | [`theoretical_foundations.md`](theoretical_foundations.md) | “Idea → deep dive” cards | Intuitive summaries followed by derivations for gates, attractors, MI, manifolds, neuroscience links | `src/analysis/eigs.py`, `scripts/find_fixed_points.py` (planned) |
 | [`gru_observability_literature.md`](gru_observability_literature.md) | Investigation guide | Narrative walkthroughs, measurement checklists, failure diagnostics | `scripts/extract_gru_dynamics.py`, `scripts/compute_hidden_mutual_info.py` |
+| [`guide_memory_diagnostics.md`](guide_memory_diagnostics.md) | Memory field report | Story-driven checklists for gates, eigenvalues, and timescales | `scripts/extract_gru_dynamics.py` |
+| [`guide_representation_diagnostics.md`](guide_representation_diagnostics.md) | Representation field report | Concept coverage, MI sweeps, geometry interpretation | `scripts/compute_hidden_mutual_info.py`, `src/visualize_trajectories.py` |
 | [`mutual_information_theory.md`](mutual_information_theory.md) | MI primer | Conceptual overview, estimator options, bootstrapping tips | `scripts/compute_hidden_mutual_info.py` |
 | [`weight_embeddings_theory.md`](weight_embeddings_theory.md) | Trajectory primer | PHATE/T-PHATE intuition, hyperparameter defaults, ablation recipes | `src/visualize_trajectories.py` |
 | [`case_studies.md`](case_studies.md) | Story archive | Literature mini-narratives with implementation notes | varies; see each case for references |

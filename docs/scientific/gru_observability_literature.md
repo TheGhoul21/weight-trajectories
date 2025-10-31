@@ -1,6 +1,6 @@
 # GRU Observability: Intuition, Methods, and Recommendations
 
-Imagine opening a fresh set of training checkpoints and trying to answer three questions: Is the GRU remembering what it should, has it learned the right strategic concepts, and where do those behaviours live in state space? `Observability` is the guide for that investigation. It starts with the questions, maps them to diagnostics, and anchors every recommendation in the formal results summarised in `theoretical_foundations.md`.
+Imagine opening a fresh set of training checkpoints and trying to answer three questions: Is the GRU remembering what it should, has it learned the right strategic concepts, and where do those behaviours live in state space? `Observability` is the guide for that investigation. It starts with the questions, maps them to diagnostics, and anchors every recommendation in the formal results summarised in `theoretical_foundations.md`. If you prefer a condensed walkthrough, pair this document with the focused field reports in `guide_memory_diagnostics.md` and `guide_representation_diagnostics.md`.
 
 ---
 
