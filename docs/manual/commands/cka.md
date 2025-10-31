@@ -22,6 +22,8 @@ Options and defaults
 - --animate-fps [int, default 3]
 - --animate-format [gif|mp4, default gif]
 - --representation [gru|cnn, default gru]
+- --force [flag] ignore cached CSVs and recompute similarities
+- --skip-plots [flag] compute or refresh CSVs only (no plotting)
 
 Reads
 - All 9 model folders for the given epoch(s); loads weights and extracts representations on fixed board set.
@@ -32,5 +34,10 @@ Writes (under `<output-dir>/<representation>/`)
 - `cka_{rep}_evolution.png` pairwise evolution for selected pairs
 - `cka_{rep}_similarity_epoch_{E}.csv` raw matrices
 - Optional: `cka_{rep}_heatmap_animation.gif|mp4`
+
+Caching and force
+- If a `cka_{rep}_similarity_epoch_{E}.csv` exists, the script reuses it and regenerates plots without recomputing similarity.
+- Pass `--force` to recompute similarities from scratch (overwriting CSVs).
+- Pass `--skip-plots` to only compute/refresh the CSVs without emitting figures.
 
 Plot explainers: see [CKA Similarity](../plots/cka.md)

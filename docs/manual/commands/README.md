@@ -64,7 +64,7 @@ Complete pipeline for recurrent network interpretability:
 | Command | Purpose | Key Outputs |
 |---------|---------|-------------|
 | [visualize](visualize.md) | Weight trajectories | `visualizations/*/` |
-| [trajectory-embedding](trajectory-embedding.md) | Metric-space plots | `visualizations/trajectory_embedding_*.png` |
+| [trajectory-embedding](trajectory-embedding.md) | Metric-space plots | `trajectory_embedding_all.png`, `..._by_gru.png`, `..._3d.png`, optional `..._3d_rotate.gif`, `..._3d.html` |
 
 ### Export
 | Command | Purpose | Outputs |
@@ -112,6 +112,22 @@ See [GRU Interpretability Workflow](../workflows/gru_interpretability.md) for co
 - **General help**: `./wt.sh help`
 - **Workflow guides**: [Workflows](manual/workflows/)
 - **Plot interpretation**: [Plots & Outputs](manual/plots/)
+
+---
+
+## Caching and recomputation
+
+Several analysis commands cache intermediate CSVs to speed up repeated plotting. Use the flags below to control recomputation:
+
+- metrics — supports `--force` to recompute `{run}_metrics.csv` even if it exists.
+- cka — supports `--force` to recompute similarity matrices and `--skip-plots` to only refresh CSVs without figures.
+- observability (MI) — supports `--force` to recompute `mi_results.csv` when present.
+
+Tip: When preparing inputs for `trajectory-embedding`, write metrics to `diagnostics/trajectory_analysis`:
+
+```bash
+./wt.sh metrics --output-dir diagnostics/trajectory_analysis ...
+```
 
 ---
 

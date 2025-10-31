@@ -506,6 +506,18 @@ def analyze_similarity_patterns(similarity_matrix, model_names, epoch, rep_label
         print(f"  c{channels}: Average CKA = {avg_sim:.3f} (across {len(models_in_group)} models)")
 
 
+def _load_similarity_csv(csv_path: Path) -> tuple[np.ndarray, List[str]]:
+    """Load a cached CKA similarity matrix CSV produced by this script.
+
+    Returns (matrix, model_names) where matrix is (N, N) in the stored order.
+    """
+    df = pd.read_csv(csv_path, index_col=0)
+    # columns and index are both model names in the same order
+    model_names = list(df.columns)
+    matrix = df.values.astype(float)
+    return matrix, model_names
+
+
 def main():
     parser = argparse.ArgumentParser(description='CKA representation similarity analysis')
     parser.add_argument('--checkpoint-dir', default='checkpoints/save_every_3',
@@ -530,6 +542,10 @@ def main():
                         help='Animation format to save (default: gif)')
     parser.add_argument('--representation', choices=['gru', 'cnn'], default='gru',
                         help='Which representation to compare (default: gru hidden state)')
+    parser.add_argument('--force', action='store_true',
+                        help='Recompute even if cached CSVs already exist')
+    parser.add_argument('--skip-plots', action='store_true',
+                        help='Do not (re)generate plots; only compute or reuse matrices')
     args = parser.parse_args()
 
     # Expand epochs if epoch-step is provided
@@ -557,34 +573,51 @@ def main():
     test_boards_tensor = torch.FloatTensor(test_boards)
     print(f"Test set shape: {test_boards_tensor.shape}")
 
-    # Compute similarity matrices for each epoch
+    # Compute or reuse similarity matrices for each epoch
     similarity_matrices = []
     processed_epochs = []
     all_model_names = None
 
     for epoch in tqdm(args.epochs, desc="Computing CKA similarities"):
-        similarity_matrix, model_names = compute_similarity_matrix_for_epoch(
-            args.checkpoint_dir, epoch, test_boards_tensor, args.device, args.representation
-        )
+        csv_path = output_dir / f'cka_{args.representation}_similarity_epoch_{epoch}.csv'
+        loaded = False
+        if csv_path.exists() and not args.force:
+            try:
+                sim_matrix, model_names = _load_similarity_csv(csv_path)
+                loaded = True
+                print(f"Loaded cached similarity matrix: {csv_path}")
+            except Exception as e:
+                print(f"Failed to load cached CSV ({csv_path}): {e}. Recomputing...")
 
-        # Skip epochs with no models
-        if len(model_names) == 0:
-            print(f"No checkpoints found for epoch {epoch}; skipping.")
-            continue
+        if not loaded:
+            sim_matrix, model_names = compute_similarity_matrix_for_epoch(
+                args.checkpoint_dir, epoch, test_boards_tensor, args.device, args.representation
+            )
+
+            # Skip epochs with no models
+            if len(model_names) == 0:
+                print(f"No checkpoints found for epoch {epoch}; skipping.")
+                continue
+
+            # Save for future runs (acts as cache of heavy compute)
+            df = pd.DataFrame(sim_matrix, columns=model_names, index=model_names)
+            df.to_csv(csv_path)
+            print(f"Saved: {csv_path}")
 
         if all_model_names is None:
             all_model_names = model_names
 
-        similarity_matrices.append(similarity_matrix)
+        similarity_matrices.append(sim_matrix)
         processed_epochs.append(epoch)
 
         # Generate visualizations for this epoch
-        plot_cka_heatmap(similarity_matrix, model_names, epoch, output_dir, args.representation)
-        plot_cka_clustered(similarity_matrix, model_names, epoch, output_dir, args.representation)
+        if not args.skip_plots:
+            plot_cka_heatmap(sim_matrix, model_names, epoch, output_dir, args.representation)
+            plot_cka_clustered(sim_matrix, model_names, epoch, output_dir, args.representation)
 
-        # Print analysis (only if at least 2 models)
-        if len(model_names) >= 2:
-            analyze_similarity_patterns(similarity_matrix, model_names, epoch, args.representation)
+            # Print analysis (only if at least 2 models)
+            if len(model_names) >= 2:
+                analyze_similarity_patterns(sim_matrix, model_names, epoch, args.representation)
 
     # Generate evolution plot
     if similarity_matrices:
@@ -593,13 +626,8 @@ def main():
     else:
         print("\nNo epochs processed; skipping evolution plot.")
 
-    # Save similarity matrices to CSV
-    print("\nSaving similarity matrices...")
-    for epoch, sim_matrix in zip(processed_epochs, similarity_matrices):
-        df = pd.DataFrame(sim_matrix, columns=all_model_names, index=all_model_names)
-        csv_path = output_dir / f'cka_{args.representation}_similarity_epoch_{epoch}.csv'
-        df.to_csv(csv_path)
-        print(f"Saved: {csv_path}")
+    # Save similarity matrices to CSV when they were computed this run.
+    # Note: when loaded from cache, files already exist.
 
     print("\n" + "="*80)
     print("CKA analysis complete!")

@@ -13,7 +13,8 @@ Reads
 - Optional dataset if `--board-source=dataset`
 
 Writes
-- Per-run CSV under `diagnostics/checkpoint_metrics/`: `{run}_metrics.csv`
+- Per-run CSV under `diagnostics/checkpoint_metrics/` by default: `{run}_metrics.csv`
+- Tip: when preparing inputs for metric-space trajectory embeddings, you can set `--output-dir diagnostics/trajectory_analysis` to match the embedding tool’s default `--metrics-dir`.
 
 Options and defaults
 - --checkpoint-dirs [one or more, REQUIRED]
@@ -27,6 +28,11 @@ Options and defaults
 - --board-seed [int, default 37]
 - --top-singular-values [int, default 4]
 - --output-dir [path, default diagnostics/checkpoint_metrics]
+- --force [flag] recompute metrics even if a cached CSV exists in the output directory
+
+Caching and force
+- By default, runs with an existing `{run}_metrics.csv` are skipped to save time.
+- Use `--force` to ignore the cache and recompute that run’s metrics.
 
 CSV columns
 - epoch

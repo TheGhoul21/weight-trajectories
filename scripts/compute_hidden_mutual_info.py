@@ -93,6 +93,11 @@ def parse_args() -> argparse.Namespace:
         default=max(1, min(4, (os.cpu_count() or 2))),
         help="Number of parallel workers for MI tasks (>=1).",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Recompute MI even if cached CSV exists; otherwise reuse cached results and only regenerate plots.",
+    )
     args, _ = parser.parse_known_args()
     return args
 
@@ -600,6 +605,31 @@ def main() -> None:
     hidden_samples_data_best: Dict[str, Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]]] = {}  # model -> feature -> (hidden, feature_vals, mi_per_dim) (best)
     model_final_epochs: Dict[str, int] = {}  # Track final epoch per model
     model_best_epochs: Dict[str, int] = {}
+
+    # If cached MI results exist and not forcing, reuse them and regenerate plots only
+    cached_csv = output_dir / "mi_results.csv"
+    if cached_csv.exists() and not args.force:
+        try:
+            df = pd.read_csv(cached_csv)
+            print(f"Reusing cached MI results: {cached_csv}\nRegenerating plots...")
+            # Recreate plots from cached data
+            plot_final_epoch_heatmap(df, output_dir / "mi_heatmap_final.png")
+            plot_best_epoch_heatmap(df, analysis_dir, output_dir / "mi_heatmap_best.png")
+            plot_feature_trends(df, args.features, output_dir)
+            # Note: Per-dimension plots require raw hidden samples and are more expensive; skip here.
+            print(f"All plots regenerated from cache. Use --force to recompute MI.")
+            # Also refresh metadata
+            summary = {
+                "analysis_dir": str(analysis_dir),
+                "features": args.features,
+                "max_samples": args.max_samples,
+                "seed": args.seed,
+                "output_dir": str(output_dir),
+            }
+            (output_dir / "mi_metadata.json").write_text(json.dumps(summary, indent=2))
+            return
+        except Exception as e:
+            print(f"Failed to load cached MI CSV ({cached_csv}): {e}. Proceeding to recompute...")
 
     # Precompute task counts for progress/ETA
     model_dirs = sorted(p for p in analysis_dir.iterdir() if p.is_dir())

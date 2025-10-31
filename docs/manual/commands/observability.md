@@ -60,6 +60,7 @@ mutual information (run within analyze)
   - --max-samples [int, default 4000] — subsample hidden states per epoch for MI estimation
   - --seed [int, default 0]
   - --output-dir [default visualizations/gru_observability]
+  - --force [flag] recompute MI even if `mi_results.csv` is present
 - Writes (to `visualizations/gru_observability/`)
   - **Overview plots** (all models, all epochs):
     - mi_results.csv — long-form table: model/epoch/feature/mi/type
@@ -71,6 +72,10 @@ mutual information (run within analyze)
     - mi_per_dimension_<model>.png — per-dimension MI heatmap at final epoch; ★ marks best dimension
     - mi_dimension_values_<model>.png — violin/scatter plots (final)
     - best_epoch/mi_per_dimension_<model>.png and best_epoch/mi_dimension_values_<model>.png — best-epoch variants
+
+Caching and force
+- When `mi_results.csv` exists, plots are regenerated from that cache without recomputing MI.
+- Use `--force` to ignore the cache and recompute MI for all requested models/epochs.
 
 Notes on epoch selection
 - Best epoch is derived from `checkpoints/<model>/training_history.json` using `epochs_saved` to index into `val_loss` and select the minimum; final epoch is the maximum saved epoch.

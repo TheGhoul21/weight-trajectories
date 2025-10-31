@@ -454,6 +454,11 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         default=Path("diagnostics/checkpoint_metrics"),
         help="Destination directory for CSV outputs.",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Recompute even if the output CSV already exists.",
+    )
     return parser.parse_args(argv)
 
 
@@ -471,6 +476,11 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     for checkpoint_dir in checkpoint_dirs:
         if not checkpoint_dir.exists():
             raise FileNotFoundError(f"Checkpoint directory not found: {checkpoint_dir}")
+        # If cached metrics exist and not forcing, skip heavy recomputation
+        cached_csv = output_dir / f"{checkpoint_dir.name}_metrics.csv"
+        if cached_csv.exists() and not args.force:
+            print(f"Skipping {checkpoint_dir} (cached metrics present at {cached_csv}). Use --force to recompute.")
+            continue
         csv_path = analyze_run(
             checkpoint_dir=checkpoint_dir,
             component=args.component,
