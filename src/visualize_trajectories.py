@@ -9,6 +9,7 @@ Provides visualizations for:
 """
 
 import argparse
+import os
 from pathlib import Path
 import json
 import re
@@ -21,6 +22,13 @@ from matplotlib import colors
 from matplotlib.animation import FuncAnimation
 from matplotlib.lines import Line2D
 import phate
+
+# Optional UMAP fallback if PHATE encounters numerical issues
+try:
+    import umap  # type: ignore
+    _HAS_UMAP = True
+except Exception:
+    _HAS_UMAP = False
 
 try:
     from .model import create_model
@@ -107,7 +115,12 @@ class TrajectoryVisualizer:
         return pairs
 
     def load_checkpoints(self):
-        """Load all checkpoints as a list of dicts with epoch, path, and state_dict."""
+        """Load all checkpoints as a list of dicts with epoch, path, and state_dict.
+
+        Note: This method eagerly loads every checkpoint into memory. For very large
+        models (e.g., GRU with multi-million parameters) this can exhaust RAM. Prefer
+        the streamed helpers added below when building embeddings.
+        """
         pairs = self._gather_checkpoint_files()
         if not pairs:
             raise FileNotFoundError(f"No checkpoints found in {self.checkpoint_dir}")
@@ -125,6 +138,33 @@ class TrajectoryVisualizer:
     def get_latest_checkpoint_path(self):
         """Return the path to the most recent checkpoint, sorted by epoch."""
         return self._gather_checkpoint_files()[-1][1]
+
+    def estimate_weight_dim(self, component: str = 'cnn') -> int:
+        """Estimate flattened weight dimension for the given component using a single checkpoint.
+
+        Loads one checkpoint only to avoid holding all state dicts in memory.
+        """
+        latest = self.get_latest_checkpoint_path()
+        checkpoint = torch.load(latest, map_location=self.device, weights_only=False)
+        state_dict = checkpoint.get('state_dict', checkpoint)
+        if component == 'cnn':
+            dims = []
+            for key, value in state_dict.items():
+                if 'resnet' in key and 'weight' in key and len(value.shape) == 4:
+                    dims.append(int(np.prod(value.shape)))
+            if not dims:
+                raise ValueError("No CNN weights found to estimate dimension")
+            return int(sum(dims))
+        elif component == 'gru':
+            dims = []
+            for key, value in state_dict.items():
+                if 'gru' in key and 'weight' in key:
+                    dims.append(int(np.prod(value.shape)))
+            if not dims:
+                raise ValueError("No GRU weights found to estimate dimension")
+            return int(sum(dims))
+        else:
+            raise ValueError("component must be 'cnn' or 'gru'")
 
     def _filter_checkpoints(self, checkpoints, epoch_min=None, epoch_max=None, epoch_stride=1):
         """Filter checkpoints by epoch range and stride."""
@@ -196,6 +236,110 @@ class TrajectoryVisualizer:
             all_weights.append(weights_flat)
 
         return np.array(all_weights)
+
+    # --- Memory-safe, streamed helpers -------------------------------------------------
+    def _memory_guard_stride(self, n_items, feature_dim, base_stride=1,
+                              mem_limit_mb_env='WT_MAX_EMBED_MEMORY_MB'):
+        """Compute a stride that keeps float32 matrix roughly under mem limit.
+
+    Returns (stride, est_mb_before) where est_mb_before is the estimated MB before downsampling.
+        """
+        try:
+            mem_limit_mb = float(os.environ.get(mem_limit_mb_env, '700'))
+        except Exception:
+            mem_limit_mb = 700.0
+        est_mb = (n_items * max(1, int(feature_dim)) * 4) / (1024 * 1024)
+        if est_mb <= mem_limit_mb:
+        return max(1, int(base_stride or 1)), est_mb
+        factor = int(np.ceil(est_mb / max(mem_limit_mb, 1e-6)))
+        return max(1, int(base_stride or 1) * factor), est_mb
+
+    def _prepare_meta_with_stride(self, epoch_min=None, epoch_max=None, epoch_stride=1,
+                                  component_hint=None):
+        """Gather checkpoint (epoch, path) pairs and apply memory-aware stride.
+
+        If component_hint is provided ('cnn' or 'gru'), we estimate its flattened feature
+        dimension to compute an auto stride that stays within WT_MAX_EMBED_MEMORY_MB.
+        If None, we use the max of CNN/GRU estimates when available.
+        """
+        pairs = self._gather_checkpoint_files()
+        if not pairs:
+            raise FileNotFoundError(f"No checkpoints found in {self.checkpoint_dir}")
+
+        # Apply explicit epoch range filter first
+        filtered = []
+        for ep, p in pairs:
+            if epoch_min is not None and ep < epoch_min:
+                continue
+            if epoch_max is not None and ep > epoch_max:
+                continue
+            filtered.append((ep, p))
+        if not filtered:
+            raise ValueError("No checkpoints remain after applying epoch filters")
+
+        # Estimate feature dim for stride guard
+        def _est(comp):
+            try:
+                return self.estimate_weight_dim(comp)
+            except Exception:
+                return None
+
+        target_dim = None
+        if component_hint in {'cnn', 'gru'}:
+            target_dim = _est(component_hint)
+        else:
+            d1, d2 = _est('cnn'), _est('gru')
+            target_dim = max(d for d in (d1, d2) if d is not None) if (d1 or d2) else None
+
+        stride_final = max(1, int(epoch_stride or 1))
+        est_mb = None
+        if target_dim is not None:
+            stride_final, est_mb = self._memory_guard_stride(len(filtered), target_dim, stride_final)
+            if stride_final > max(1, int(epoch_stride or 1)):
+                lim = float(os.environ.get('WT_MAX_EMBED_MEMORY_MB', '700'))
+                est_text = f"est {est_mb:.0f}MB" if est_mb is not None else "unknown"
+                hint = component_hint.upper() if component_hint else 'AUTO'
+                print(f"  Auto-downsampling ({hint}): stride {epoch_stride or 1} -> {stride_final} to fit ~{lim:.0f}MB ({est_text}).")
+
+        # Apply stride
+        filtered = filtered[::stride_final]
+        # Return as list of meta dicts and epochs
+        meta = [{'epoch': ep, 'path': p} for ep, p in filtered]
+        epochs = [ep for ep, _ in filtered]
+        return meta, epochs
+
+    def extract_cnn_weights_streamed(self, meta_checkpoints):
+        """Stream-load checkpoints and extract CNN weights to avoid storing state_dicts."""
+        all_weights = []
+        for item in meta_checkpoints:
+            sd_checkpoint = torch.load(item['path'], map_location=self.device, weights_only=False)
+            state_dict = sd_checkpoint.get('state_dict', sd_checkpoint)
+            cnn_weights = []
+            for key, value in state_dict.items():
+                if 'resnet' in key and 'weight' in key and len(value.shape) == 4:
+                    cnn_weights.append(value.cpu().numpy().ravel())
+            if not cnn_weights:
+                raise ValueError("No CNN weights found in checkpoint")
+            all_weights.append(np.concatenate(cnn_weights))
+            # proactively release tensors
+            del state_dict, sd_checkpoint
+    return np.array(all_weights, dtype=np.float32)
+
+    def extract_gru_weights_streamed(self, meta_checkpoints):
+        """Stream-load checkpoints and extract GRU weights to avoid storing state_dicts."""
+        all_weights = []
+        for item in meta_checkpoints:
+            sd_checkpoint = torch.load(item['path'], map_location=self.device, weights_only=False)
+            state_dict = sd_checkpoint.get('state_dict', sd_checkpoint)
+            gru_weights = []
+            for key, value in state_dict.items():
+                if 'gru' in key and 'weight' in key:
+                    gru_weights.append(value.cpu().numpy().ravel())
+            if not gru_weights:
+                raise ValueError("No GRU weights found in checkpoint")
+            all_weights.append(np.concatenate(gru_weights))
+            del state_dict, sd_checkpoint
+        return np.array(all_weights, dtype=np.float32)
 
     def _select_knn(self, n_samples, max_knn=5):
         """Select a PHATE knn parameter that works for small sample counts."""
@@ -471,9 +615,14 @@ class TrajectoryVisualizer:
                                  phate_t=None, phate_decay=None, use_tphate=False,
                                  tphate_alpha=1.0):
         """Visualize CNN weight evolution."""
-        checkpoints = self.load_checkpoints()
-        checkpoints, epochs = self._filter_checkpoints(checkpoints, epoch_min, epoch_max, epoch_stride)
-        cnn_weights = self.extract_cnn_weights(checkpoints)
+        meta, epochs = self._prepare_meta_with_stride(epoch_min, epoch_max, epoch_stride, component_hint='cnn')
+        # Info printout mirrors ablation logs
+        try:
+            feat_dim = self.estimate_weight_dim('cnn')
+            print(f"Loaded {len(meta)} checkpoints from {self.checkpoint_dir.name} with feature dim {feat_dim} for component cnn.")
+        except Exception:
+            print(f"Loaded {len(meta)} checkpoints from {self.checkpoint_dir.name} for component cnn.")
+        cnn_weights = self.extract_cnn_weights_streamed(meta)
         title = f"CNN Weight Trajectory (k={self.kernel_size}, c={self.cnn_channels})"
 
         return self.visualize_weight_trajectory(cnn_weights, title, save_path, epochs,
@@ -489,9 +638,13 @@ class TrajectoryVisualizer:
                                  phate_t=None, phate_decay=None, use_tphate=False,
                                  tphate_alpha=1.0):
         """Visualize GRU weight evolution."""
-        checkpoints = self.load_checkpoints()
-        checkpoints, epochs = self._filter_checkpoints(checkpoints, epoch_min, epoch_max, epoch_stride)
-        gru_weights = self.extract_gru_weights(checkpoints)
+        meta, epochs = self._prepare_meta_with_stride(epoch_min, epoch_max, epoch_stride, component_hint='gru')
+        try:
+            feat_dim = self.estimate_weight_dim('gru')
+            print(f"Loaded {len(meta)} checkpoints from {self.checkpoint_dir.name} with feature dim {feat_dim} for component gru.")
+        except Exception:
+            print(f"Loaded {len(meta)} checkpoints from {self.checkpoint_dir.name} for component gru.")
+        gru_weights = self.extract_gru_weights_streamed(meta)
         title = f"GRU Weight Trajectory (hidden={self.gru_hidden})"
         return self.visualize_weight_trajectory(gru_weights, title, save_path, epochs,
                                                 phate_n_pca=phate_n_pca,
@@ -646,14 +799,56 @@ class TrajectoryVisualizer:
         # phate_decay: Optional decay parameter.
         print("\nCreating summary visualization...")
 
-        checkpoints = self.load_checkpoints()
-        checkpoints, checkpoint_epochs = self._filter_checkpoints(
-            checkpoints, epoch_min, epoch_max, epoch_stride)
-        cnn_weights = self.extract_cnn_weights(checkpoints)
-        gru_weights = self.extract_gru_weights(checkpoints)
+        # Build an aligned, memory-safe subset of checkpoints for both components
+        pairs = self._gather_checkpoint_files()
+        if not pairs:
+            raise FileNotFoundError(f"No checkpoints found in {self.checkpoint_dir}")
+        # Apply epoch bounds first
+        filtered_pairs = []
+        for ep, p in pairs:
+            if epoch_min is not None and ep < epoch_min:
+                continue
+            if epoch_max is not None and ep > epoch_max:
+                continue
+            filtered_pairs.append((ep, p))
+        if not filtered_pairs:
+            raise ValueError("No checkpoints remain after applying epoch filters")
+
+        # Estimate dims and choose conservative stride using the larger feature dim
+        try:
+            d_cnn = self.estimate_weight_dim('cnn')
+        except Exception:
+            d_cnn = None
+        try:
+            d_gru = self.estimate_weight_dim('gru')
+        except Exception:
+            d_gru = None
+        target_dim = None
+        if d_cnn is not None and d_gru is not None:
+            target_dim = max(d_cnn, d_gru)
+        else:
+            target_dim = d_cnn or d_gru
+
+        stride_final = max(1, int(epoch_stride or 1))
+        if target_dim is not None:
+            stride_final, est_mb = self._memory_guard_stride(len(filtered_pairs), target_dim, stride_final)
+            if stride_final > max(1, int(epoch_stride or 1)):
+                lim = float(os.environ.get('WT_MAX_EMBED_MEMORY_MB', '700'))
+                est_text = f"est {est_mb:.0f}MB" if est_mb is not None else "unknown"
+                print(f"  Auto-downsampling (SUMMARY): stride {epoch_stride or 1} -> {stride_final} to fit ~{lim:.0f}MB ({est_text}).")
+
+        filtered_pairs = filtered_pairs[::stride_final]
+        checkpoint_epochs = [ep for ep, _ in filtered_pairs]
+        meta = [{'epoch': ep, 'path': p} for ep, p in filtered_pairs]
+
+        # Stream extract both components on the same epoch subset
+        print("  Loading CNN weights (streamed)...")
+        cnn_weights = self.extract_cnn_weights_streamed(meta)
+        print("  Loading GRU weights (streamed)...")
+        gru_weights = self.extract_gru_weights_streamed(meta)
 
         # Compute PHATE embeddings with adaptive knn
-        n_samples = len(checkpoints)
+    n_samples = len(checkpoint_epochs)
         knn, knn_msg = self._resolve_phate_knn(n_samples, default_max=3, requested=phate_knn)
         if knn_msg:
             print(f"  {knn_msg}")
@@ -1229,31 +1424,82 @@ def _sanitize_phate_input(X: np.ndarray, rng_seed: int = 0) -> np.ndarray:
     X = np.array(X, dtype=np.float32, copy=True)
     # Ensure finite values
     np.nan_to_num(X, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-    # Jitter exact duplicates
+    # If collapsed variance, ensure tiny spread
+    global_scale = float(np.std(X))
+    if not np.isfinite(global_scale) or global_scale == 0.0:
+        X = X + np.float32(1e-6)
+        global_scale = 1.0
+
+    # Light feature standardization to stabilize distances
+    with np.errstate(invalid='ignore', divide='ignore'):
+        mu = X.mean(axis=0, keepdims=True)
+        sigma = X.std(axis=0, keepdims=True)
+        sigma[sigma == 0] = 1.0
+        X = (X - mu) / sigma
+        X = X.astype(np.float32, copy=False)
+
+    # Jitter exact duplicates deterministically
     try:
-        uniq, inverse, counts = np.unique(X, axis=0, return_inverse=True, return_counts=True)
+        _, inverse, counts = np.unique(X, axis=0, return_inverse=True, return_counts=True)
         if np.any(counts > 1):
             rng = np.random.default_rng(rng_seed)
-            scale = float(np.std(X))
-            eps = 1e-5 * (scale if scale > 0 else 1.0)
+            eps = 5e-5 * (global_scale if global_scale > 0 else 1.0)
             seen = {}
             for i, g in enumerate(inverse):
                 c = seen.get(int(g), 0)
                 if c > 0:
-                    X[i] += (eps * rng.standard_normal(X.shape[1])).astype(np.float32)
+                    jitter = rng.standard_normal(X.shape[1]).astype(np.float32)
+                    X[i] += np.float32(eps) * jitter
                 seen[int(g)] = c + 1
-            # Second pass: if duplicates remain due to numerical ties, add tiny deterministic per-row offset
-            uniq2, inverse2, counts2 = np.unique(X, axis=0, return_inverse=True, return_counts=True)
+            # If duplicates persist, add tiny index-based offset to first column
+            _, _, counts2 = np.unique(X, axis=0, return_inverse=True, return_counts=True)
             if np.any(counts2 > 1):
-                eps2 = 1e-6 * (scale if scale > 0 else 1.0)
-                for i in range(X.shape[0]):
-                    X[i, 0] += np.float32(eps2 * ((i % 97) / 97.0))
+                eps2 = 1e-6 * (global_scale if global_scale > 0 else 1.0)
+                idx = np.arange(X.shape[0], dtype=np.float32)
+                X[:, 0] += np.float32(eps2) * ((idx % 97) / 97.0)
     except Exception:
-        # Be conservative: add a minuscule global jitter if uniqueness fails
-        scale = float(np.std(X))
-        eps = 1e-7 * (scale if scale > 0 else 1.0)
-        X = X + eps
+        eps = 1e-6 * (global_scale if global_scale > 0 else 1.0)
+        X = X + np.float32(eps)
     return X
+
+
+def _embed_with_fallbacks(X: np.ndarray, knn: int, phate_t: int | None, phate_decay: float | None):
+    """Try PHATE (with retry), then UMAP, then PCA; return (embedding, method)."""
+    n = X.shape[0]
+    # First attempt
+    kwargs = dict(n_components=2, knn=max(2, min(knn, n - 1)), t=phate_t if phate_t is not None else 10,
+                  verbose=False, n_pca=None)
+    if phate_decay is not None:
+        kwargs['decay'] = phate_decay
+    try:
+        op = phate.PHATE(**kwargs)
+        return op.fit_transform(X), 'phate'
+    except Exception:
+        # Retry with larger knn and different sanitization seed
+        X_retry = _sanitize_phate_input(X, rng_seed=1)
+        kwargs_retry = dict(n_components=2, knn=max(2, min(knn + 2, n - 1)), t=phate_t if phate_t is not None else 10,
+                            verbose=False, n_pca=None)
+        if phate_decay is not None:
+            kwargs_retry['decay'] = phate_decay
+        try:
+            op = phate.PHATE(**kwargs_retry)
+            return op.fit_transform(X_retry), 'phate(retry)'
+        except Exception:
+            # UMAP fallback
+            if _HAS_UMAP:
+                try:
+                    reducer = umap.UMAP(n_neighbors=max(2, min(knn, n - 1)), n_components=2,
+                                        min_dist=0.1, metric='euclidean', random_state=42)
+                    return reducer.fit_transform(X), 'umap'
+                except Exception:
+                    pass
+            # PCA fallback
+            try:
+                from sklearn.decomposition import PCA
+                pca = PCA(n_components=2, svd_solver='auto', random_state=42)
+                return pca.fit_transform(X), 'pca'
+            except Exception as final_err:
+                raise final_err
 
 
 def _create_ablation_animation(ax, run_data, component, animation_path, fps=2):
@@ -1328,8 +1574,35 @@ def visualize_ablation_weight_trajectories(checkpoint_dirs, component='cnn', dev
     max_dim = 0
     for cp_path in path_list:
         viz = TrajectoryVisualizer(cp_path, device)
-        checkpoints = viz.load_checkpoints()
-        checkpoints, epochs = viz._filter_checkpoints(checkpoints, epoch_min, epoch_max, epoch_stride)
+        # Gather metadata first to avoid loading all state dicts at once
+        meta_pairs = viz._gather_checkpoint_files()
+        # Convert to minimal dicts compatible with filter method
+        meta_checkpoints = [{'epoch': ep, 'path': p} for ep, p in meta_pairs]
+        checkpoints_meta, epochs = viz._filter_checkpoints(meta_checkpoints, epoch_min, epoch_max, epoch_stride)
+
+        # Auto-downsample if projected memory footprint is too large
+        try:
+            weight_dim = viz.estimate_weight_dim(component)
+        except Exception:
+            weight_dim = None
+        mem_limit_mb = float(os.environ.get('WT_MAX_EMBED_MEMORY_MB', '700'))
+        if weight_dim is not None and checkpoints_meta:
+            n_samples_est = len(checkpoints_meta)
+            est_mb = (n_samples_est * weight_dim * 4) / (1024 * 1024)
+            if est_mb > mem_limit_mb:
+                factor = int(np.ceil(est_mb / mem_limit_mb))
+                new_stride = max(1, (epoch_stride or 1) * factor)
+                checkpoints_meta, epochs = viz._filter_checkpoints(meta_checkpoints, epoch_min, epoch_max, new_stride)
+                print(f"  Auto-downsampling {cp_path.name}: stride {epoch_stride or 1} -> {new_stride} to fit ~{mem_limit_mb:.0f}MB (est {est_mb:.0f}MB).")
+
+        # Stream-load each checkpoint to extract weights, avoiding full state retention
+        checkpoints = []
+        for item in checkpoints_meta:
+            # Load state dict for this checkpoint only
+            sd_checkpoint = torch.load(item['path'], map_location=device, weights_only=False)
+            state_dict = sd_checkpoint.get('state_dict', sd_checkpoint)
+            checkpoints.append({'epoch': item['epoch'], 'path': item['path'], 'state_dict': state_dict})
+
         if component == 'cnn':
             weights = viz.extract_cnn_weights(checkpoints)
         else:
@@ -1411,28 +1684,10 @@ def visualize_ablation_weight_trajectories(checkpoint_dirs, component='cnn', dev
             phate_op = phate.PHATE(**_kwargs)
             embedding = phate_op.fit_transform(phate_input)
     else:
-        # Sanitize input to avoid zero-distance duplicates causing NaNs in graphtools normalization
+        # Sanitize input to avoid zero-distance duplicates causing NaNs
         phate_input = _sanitize_phate_input(phate_input)
-        try:
-            _kwargs = dict(n_components=2, knn=knn,
-                           t=phate_t if phate_t is not None else 10,
-                           verbose=False, n_pca=None)
-            if phate_decay is not None:
-                _kwargs['decay'] = phate_decay
-            phate_op = phate.PHATE(**_kwargs)
-            embedding = phate_op.fit_transform(phate_input)
-        except Exception as e:
-            # Retry with slightly larger neighbourhood and fresh sanitization
-            print(f"  PHATE failed ({e}); retrying with knn={min(knn+2, phate_input.shape[0]-1)}.")
-            knn_retry = max(2, min(knn + 2, phate_input.shape[0] - 1))
-            phate_input = _sanitize_phate_input(phate_input, rng_seed=1)
-            _kwargs = dict(n_components=2, knn=knn_retry,
-                           t=phate_t if phate_t is not None else 10,
-                           verbose=False, n_pca=None)
-            if phate_decay is not None:
-                _kwargs['decay'] = phate_decay
-            phate_op = phate.PHATE(**_kwargs)
-            embedding = phate_op.fit_transform(phate_input)
+        # Use robust embedding with fallbacks to avoid failure
+        embedding, _ = _embed_with_fallbacks(phate_input, knn, phate_t, phate_decay)
 
     fig, ax = plt.subplots(figsize=(10, 8))
     cmap = plt.colormaps['tab20'].resampled(max(len(run_data), 1))

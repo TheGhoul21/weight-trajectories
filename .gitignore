@@ -14,9 +14,11 @@ models/*.pt
 artifacts/
 ablation_study/outputs/
 visualizations2/
+visualizations*/
 
 # Analysis outputs (regenerable via wizard)
 diagnostics/
+diagnostics*/
 visualizations/
 *.csv
 !data/*.csv  # Keep original data CSVs

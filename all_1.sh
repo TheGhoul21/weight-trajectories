@@ -17,7 +17,7 @@ set -euo pipefail
 BASE="checkpoints/save_every_1"
 OUT="visualizations/save_every_1"
 SEQ_DATA="${SEQ_DATA:-data/connect4_sequential_10k_games.pt}"
-PHASES="suite,ablation,embeddings,observability,fixed,cka,metrics,trajectory"
+PHASES="suite,ablation,observability,fixed,cka,metrics,trajectory"
 FORCE=0
 ABLA_EPOCH_STEP="${ABLA_EPOCH_STEP:-2}"
 
@@ -41,14 +41,14 @@ mkdir -p "$OUT"
 has_phase() { [[ ",$PHASES," == *",$1,"* ]]; }
 
 run_suite() {
-  if [[ ! -f "configs/visualization_suite_1.json" ]]; then
-    echo "Skipping suite (missing configs/visualization_suite_1.json)"; return 0
+  if [[ ! -f "configs/visualization_suite_1wd1e-3.json" ]]; then
+    echo "Skipping suite (missing configs/visualization_suite_1wd1e-3.json)"; return 0
   fi
   local report="$OUT/report.md"
   if [[ $FORCE -eq 0 && -f "$report" ]]; then
     echo "Suite already has report at $report (use --force to rebuild)"; return 0
   fi
-  ./wt.sh visualize --config configs/visualization_suite_1.json --report "$report"
+  ./wt.sh visualize --config configs/visualization_suite_1wd1e-3.json --report "$report"
 }
 
 # Build ablation groups automatically from $BASE/k*_c*_gru*/
@@ -141,6 +141,10 @@ run_metrics() {
     ./wt.sh metrics --checkpoint-dirs "$BASE"/*/ --component all \
       --output-dir "$metrics_dir"
   fi
+
+  ./wt.sh factorial --metrics-dir "$metrics_dir" \
+    --checkpoint-dir "$BASE" \
+    --output-dir "$OUT/factorial_analysis"
 }
 
 run_trajectory() {
@@ -175,7 +179,9 @@ run_observability() {
   ./wt.sh observability extract --checkpoint-dir "$BASE" --dataset "$SEQ_DATA" \
     --output-dir "$diag_dir" --max-games 128 --sample-hidden 1500 || true
   ./wt.sh observability analyze --analysis-dir "$diag_dir" \
-    --output-dir "$out_dir" --max-hidden-samples 2000 || true
+    --output-dir "$out_dir" --max-hidden-samples 2000 \
+    --embedding-animate --embedding-mode joint --embedding-joint-samples 250 \
+    --embedding-fps 6 --embedding-format auto || true
 }
 
 run_fixed() {
@@ -208,62 +214,3 @@ has_phase trajectory && run_trajectory
 has_phase observability && run_observability
 has_phase fixed && run_fixed
 has_phase cka && run_cka
-
-# 3) Weight embeddings (PCA/TSNE/UMAP/PHATE) + overlays + GIFs
-./wt.sh embeddings --checkpoint-dirs "$BASE"/*/ --component cnn \
-  --methods pca tsne umap phate --output-dir "$OUT/embeddings" --compare --annotate --animate
-
-./wt.sh embeddings --checkpoint-dirs "$BASE"/*/ --component gru \
-  --methods pca tsne umap phate --output-dir "$OUT/embeddings" --compare --annotate --animate
-
-./wt.sh embeddings --checkpoint-dirs "$BASE"/*/ --component all \
-  --methods pca tsne umap phate --output-dir "$OUT/embeddings" --compare --annotate --animate
-
-# # 4) GRU observability (extract, analyze + MI)
-# if [ -f "$SEQ_DATA" ]; then
-#   ./wt.sh observability extract --checkpoint-dir "$BASE" --dataset "$SEQ_DATA" \
-#     --output-dir "diagnostics/gru_observability"
-
-
-#   ./wt.sh observability analyze --analysis-dir "diagnostics/gru_observability" \
-#     --output-dir "$OUT/gru_observability"
-# else
-#   echo "Skipping observability (missing $SEQ_DATA)"
-# fi
-
-# # 5) Fixed points + evolution
-# if [ -f "$SEQ_DATA" ]; then
-#   ./wt.sh observability fixed --checkpoint-dir "$BASE" --dataset "$SEQ_DATA" \
-#     --output-dir "diagnostics/gru_fixed_points"
-
-#   ./wt.sh observability evolve --fixed-dir "diagnostics/gru_fixed_points" \
-#     --output-dir "$OUT/gru_fixed_points"
-# fi
-
-# # 6) CKA similarity across runs (GRU and CNN), with animations
-# ./wt.sh cka --checkpoint-dir "$BASE" --representation gru --output-dir "$OUT/cka" \
-#   --epoch-step 10 --animate
-# ./wt.sh cka --checkpoint-dir "$BASE" --representation cnn --output-dir "$OUT/cka" \
-#   --epoch-step 10 --animate
-
-# 7) Metrics CSVs feeding metric-space trajectory embeddings
-#    Produces diagnostics/trajectory_analysis/<run>_metrics.csv
-if [ -f "$SEQ_DATA" ]; then
-  ./wt.sh metrics --checkpoint-dirs "$BASE"/*/ --component all \
-    --board-source dataset --board-dataset "$SEQ_DATA" \
-    --output-dir "diagnostics/trajectory_analysis"
-else
-  ./wt.sh metrics --checkpoint-dirs "$BASE"/*/ --component all \
-    --output-dir "diagnostics/trajectory_analysis"
-fi
-
-# 8) Metric-space embedding (PHATE) with 3D rotation GIF and interactive HTML
-./wt.sh trajectory-embedding \
-  --metrics-dir "diagnostics/trajectory_analysis" \
-  --checkpoint-dir "$BASE" \
-  --output-dir "$OUT/metric_space" \
-  --method phate \
-  --n-neighbors 10 \
-  --dims 3 \
-  --animate-3d --anim-frames 180 --anim-seconds 12 \
-  --plotly-html "$OUT/metric_space/trajectory_embedding_3d.html"

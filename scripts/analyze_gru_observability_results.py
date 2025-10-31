@@ -27,6 +27,7 @@ _DEFAULT_MPL_DIR.mkdir(parents=True, exist_ok=True)
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib import animation
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -69,13 +70,25 @@ def parse_args() -> argparse.Namespace:
         "--embedding-epochs",
         nargs="+",
         type=int,
-        default=[3, 30, 60, 100],
+        default=list(range(1, 101, 2)),
         help="Epochs to visualise in PHATE embeddings (must exist in hidden_samples).",
     )
     parser.add_argument(
         "--embedding-feature",
         default="move_index",
         help="Feature name used to colour PHATE embeddings.",
+    )
+    parser.add_argument(
+        "--embedding-mode",
+        choices=["separate", "joint"],
+        default="separate",
+        help="How to compute embeddings across epochs for animation: 'separate' fits per-epoch (fast, may flip); 'joint' fits once per model on pooled epochs (stable axes).",
+    )
+    parser.add_argument(
+        "--embedding-joint-samples",
+        type=int,
+        default=300,
+        help="Max samples per epoch per model to pool when --embedding-mode=joint (controls memory).",
     )
     parser.add_argument(
         "--probe-epochs",
@@ -118,6 +131,29 @@ def parse_args() -> argparse.Namespace:
         "--skip-embedding",
         action="store_true",
         help="Skip PHATE embedding visualisations.",
+    )
+    parser.add_argument(
+        "--embedding-animate",
+        action="store_true",
+        help="Render an animation over embedding-epochs (3x3 grid across models).",
+    )
+    parser.add_argument(
+        "--embedding-fps",
+        type=int,
+        default=4,
+        help="Frames per second for embedding animation.",
+    )
+    parser.add_argument(
+        "--embedding-format",
+        choices=["auto", "mp4", "gif"],
+        default="auto",
+        help="Animation output format (mp4 requires ffmpeg; gif uses PillowWriter).",
+    )
+    parser.add_argument(
+        "--embedding-dpi",
+        type=int,
+        default=150,
+        help="DPI for saved animation frames.",
     )
     parser.add_argument(
         "--skip-probing",
@@ -392,6 +428,21 @@ def clean_hidden_features(
     return hidden, features
 
 
+def _sort_models_grid(models: list[Path]) -> list[Path]:
+    def parse_model_name(name: str) -> tuple[int, int, int, str]:
+        # Expect tokens like k3_c64_gru32_...
+        k = c = g = 10**9
+        for tok in name.split("_"):
+            if tok.startswith("k") and tok[1:].isdigit():
+                k = int(tok[1:])
+            elif tok.startswith("c") and tok[1:].isdigit():
+                c = int(tok[1:])
+            elif tok.startswith("gru") and tok[3:].isdigit():
+                g = int(tok[3:])
+        return (k, c, g, name)
+    return sorted(models, key=lambda p: parse_model_name(p.name))
+
+
 def plot_phate_embeddings(
     analysis_dir: Path,
     output_dir: Path,
@@ -404,10 +455,12 @@ def plot_phate_embeddings(
         print("PHATE not installed; skipping embedding plot.")
         return
 
-    models = sorted(p for p in analysis_dir.iterdir() if p.is_dir())
+    models = _sort_models_grid([p for p in analysis_dir.iterdir() if p.is_dir()])
     for epoch in epochs:
         print(f"[Embed] PHATE embeddings for epoch {epoch} (feature='{feature_name}')", flush=True)
         fig, axes = plt.subplots(3, 3, figsize=(15, 14))
+        # Leave room at right for a vertical colorbar
+        fig.subplots_adjust(right=0.9)
         for ax in axes.flat:
             ax.axis("off")
 
@@ -464,7 +517,9 @@ def plot_phate_embeddings(
             ax.set_yticks([])
 
         fig.suptitle(f"PHATE Embedding at Epoch {epoch} (colour: {feature_name})", fontsize=14)
-        cbar = fig.colorbar(scatter, ax=axes.ravel().tolist(), shrink=0.6)
+        # Dedicated colorbar axis to avoid overlapping last column
+        cbar_ax = fig.add_axes([0.92, 0.15, 0.018, 0.7])
+        cbar = fig.colorbar(scatter, cax=cbar_ax)
         cbar.set_label(feature_name)
         output_path = output_dir / f"phate_epoch_{epoch:03d}_{feature_name}.png"
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -472,6 +527,311 @@ def plot_phate_embeddings(
         fig.savefig(output_path, dpi=300)
         plt.close(fig)
         print(f"[Embed] Saved {output_path}", flush=True)
+
+
+def animate_phate_embeddings(
+    analysis_dir: Path,
+    output_dir: Path,
+    epochs: Iterable[int],
+    feature_name: str,
+    max_samples: int,
+    rng: np.random.Generator,
+    fps: int = 4,
+    fmt: str = "auto",
+    dpi: int = 150,
+) -> None:
+    """Generate a 3x3 grid animation of PHATE embeddings over epochs.
+
+    Notes:
+    - Uses consistent axis limits across frames for stability.
+    - Uses a global color normalization across all frames.
+    - Only the first 9 models are included to fit a 3x3 grid.
+    """
+    if not HAS_PHATE:
+        print("PHATE not installed; skipping animation.")
+        return
+
+    sel_epochs = [int(e) for e in sorted(set(int(e) for e in epochs))]
+    models_all = _sort_models_grid([p for p in analysis_dir.iterdir() if p.is_dir()])
+    if not models_all:
+        print("[Embed] No models found for animation.")
+        return
+    models = models_all[:9]
+    if len(models_all) > 9:
+        print(f"[Embed] More than 9 models found; animating first 9: {[m.name for m in models]}")
+
+    # Precompute embeddings and colors for all (epoch, model)
+    cache: Dict[tuple[int, str], tuple[np.ndarray | None, np.ndarray | None]] = {}
+    # Track global axis limits and color range
+    xmin: Dict[str, float] = {m.name: float("inf") for m in models}
+    xmax: Dict[str, float] = {m.name: float("-inf") for m in models}
+    ymin: Dict[str, float] = {m.name: float("inf") for m in models}
+    ymax: Dict[str, float] = {m.name: float("-inf") for m in models}
+    cmin = float("inf")
+    cmax = float("-inf")
+    # Per-model orientation anchoring based on correlation with the chosen feature
+    # For each model, pick the PHATE axis (0 or 1) that best correlates with the feature
+    # at the first available epoch, and fix its sign to keep correlation positive.
+    orientation: Dict[str, Dict[str, int]] = {}
+
+    def _corr(a: np.ndarray, b: np.ndarray) -> float:
+        a = a.ravel(); b = b.ravel()
+        if a.size != b.size or a.size < 3:
+            return 0.0
+        sa, sb = np.std(a), np.std(b)
+        if sa <= 1e-12 or sb <= 1e-12:
+            return 0.0
+        return float(np.corrcoef(a, b)[0, 1])
+
+    print(f"[Embed] Precomputing PHATE embeddings for animation over {len(sel_epochs)} epochs × {len(models)} models…", flush=True)
+
+    # Decide mode: separate vs joint from outer scope (args)
+    # We'll detect via presence on global namespace when calling; fallback to separate
+    # Instead, read environment var set by caller (simple hook) — but better: infer from function default not available.
+    # We pass mode via a closure variable in main(); emulate by checking attribute set later.
+    mode = getattr(animate_phate_embeddings, "_mode", "separate")
+    joint_samples = getattr(animate_phate_embeddings, "_joint_samples", 300)
+
+    if mode == "joint":
+        # For each model, pool across epochs with per-epoch cap and fit once; then slice per epoch
+        for model_dir in models:
+            pooled_hidden = []
+            pooled_colour = []
+            pooled_epoch = []
+            first_feat_names = None
+            for epoch in sel_epochs:
+                try:
+                    hidden, features, feature_names = load_hidden_samples(model_dir, epoch, min(joint_samples, max_samples), rng)
+                except FileNotFoundError:
+                    continue
+                if hidden.shape[0] == 0:
+                    continue
+                hidden, features = clean_hidden_features(hidden, features)
+                if hidden.shape[0] < 3:
+                    continue
+                if first_feat_names is None:
+                    first_feat_names = feature_names
+                # Determine colouring
+                if feature_name in feature_names:
+                    ci = feature_names.index(feature_name)
+                    colour = features[:, ci]
+                else:
+                    colour = np.zeros(hidden.shape[0], dtype=float)
+                pooled_hidden.append(hidden)
+                pooled_colour.append(colour)
+                pooled_epoch.append(np.full(hidden.shape[0], epoch, dtype=int))
+            if not pooled_hidden:
+                # Fill cache with None for all epochs for this model
+                for epoch in sel_epochs:
+                    cache[(epoch, model_dir.name)] = (None, None)
+                continue
+            H = np.concatenate(pooled_hidden, axis=0)
+            C = np.concatenate(pooled_colour, axis=0)
+            E = np.concatenate(pooled_epoch, axis=0)
+            knn = min(10, max(2, H.shape[0] - 1))
+            try:
+                reducer = phate.PHATE(n_components=2, knn=knn, random_state=0, verbose=False)
+                EMB = reducer.fit_transform(H)
+            except Exception as exc:
+                print(f"[Embed] PHATE joint fit failed for {model_dir.name}: {exc}")
+                for epoch in sel_epochs:
+                    cache[(epoch, model_dir.name)] = (None, None)
+                continue
+            # Orientation based on correlation with feature for this model
+            orient_axis = 0
+            orient_sign = 1
+            c0 = _corr(EMB[:, 0], C)
+            c1 = _corr(EMB[:, 1], C)
+            if abs(c1) > abs(c0):
+                orient_axis = 1
+                orient_sign = 1 if c1 >= 0 else -1
+            else:
+                orient_axis = 0
+                orient_sign = 1 if c0 >= 0 else -1
+            X = orient_sign * EMB[:, orient_axis]
+            Y = EMB[:, 1 - orient_axis]
+            EMB2 = np.stack([X, Y], axis=1)
+            # Update limits per model
+            xmin[model_dir.name] = float(np.min(EMB2[:, 0])); xmax[model_dir.name] = float(np.max(EMB2[:, 0]))
+            ymin[model_dir.name] = float(np.min(EMB2[:, 1])); ymax[model_dir.name] = float(np.max(EMB2[:, 1]))
+            cmin = min(cmin, float(np.min(C))); cmax = max(cmax, float(np.max(C)))
+            # Slice back per epoch
+            for epoch in sel_epochs:
+                mask = (E == epoch)
+                if not np.any(mask):
+                    cache[(epoch, model_dir.name)] = (None, None)
+                else:
+                    cache[(epoch, model_dir.name)] = (EMB2[mask], C[mask])
+    else:
+        # Separate fits (per-epoch)
+        for epoch in sel_epochs:
+            for model_dir in models:
+                key = (epoch, model_dir.name)
+                try:
+                    hidden, features, feature_names = load_hidden_samples(model_dir, epoch, max_samples, rng)
+                except FileNotFoundError:
+                    cache[key] = (None, None)
+                    continue
+                if hidden.shape[0] == 0:
+                    cache[key] = (None, None)
+                    continue
+                hidden, features = clean_hidden_features(hidden, features)
+                if hidden.shape[0] < 3:
+                    cache[key] = (None, None)
+                    continue
+                knn = min(5, max(2, hidden.shape[0] - 1))
+                try:
+                    reducer = phate.PHATE(n_components=2, knn=knn, random_state=0, verbose=False)
+                    emb = reducer.fit_transform(hidden)
+                except Exception as exc:
+                    print(f"[Embed] PHATE failed for {model_dir.name} epoch {epoch}: {exc}")
+                    cache[key] = (None, None)
+                    continue
+
+                if feature_name in feature_names:
+                    ci = feature_names.index(feature_name)
+                    colour = features[:, ci]
+                else:
+                    colour = np.zeros(emb.shape[0], dtype=float)
+
+                # Orientation stabilisation: determine and apply model-wise axis/sign choice
+                # Use the first epoch with valid data to anchor which axis correlates best with the feature
+                orient = orientation.get(model_dir.name)
+                if orient is None and colour.size > 0:
+                    c0 = _corr(emb[:, 0], colour)
+                    c1 = _corr(emb[:, 1], colour)
+                    if abs(c1) > abs(c0):
+                        chosen_axis = 1
+                        chosen_sign = 1 if c1 >= 0 else -1
+                    else:
+                        chosen_axis = 0
+                        chosen_sign = 1 if c0 >= 0 else -1
+                    orientation[model_dir.name] = {"axis": chosen_axis, "sign": chosen_sign}
+                    orient = orientation[model_dir.name]
+                # Apply orientation if available
+                if orient is not None:
+                    ax_idx = orient["axis"]
+                    sign = orient["sign"]
+                    x = sign * emb[:, ax_idx]
+                    y = emb[:, 1 - ax_idx]
+                    emb = np.stack([x, y], axis=1)
+
+                cache[key] = (emb, colour)
+                # Update limits
+                if emb.size:
+                    mnx, mxx = float(np.min(emb[:, 0])), float(np.max(emb[:, 0]))
+                    mny, mxy = float(np.min(emb[:, 1])), float(np.max(emb[:, 1]))
+                    xmin[model_dir.name] = min(xmin[model_dir.name], mnx)
+                    xmax[model_dir.name] = max(xmax[model_dir.name], mxx)
+                    ymin[model_dir.name] = min(ymin[model_dir.name], mny)
+                    ymax[model_dir.name] = max(ymax[model_dir.name], mxy)
+                if colour.size:
+                    cmin = min(cmin, float(np.min(colour)))
+                    cmax = max(cmax, float(np.max(colour)))
+
+    if not np.isfinite(cmin) or not np.isfinite(cmax) or cmin == cmax:
+        cmin, cmax = 0.0, 1.0
+
+    # Set up figure and initial artists
+    fig, axes = plt.subplots(3, 3, figsize=(15, 14))
+    fig.subplots_adjust(right=0.9)
+    for ax in axes.flat:
+        ax.axis("off")
+    scatters: Dict[str, plt.Collection] = {}
+
+    # Draw first frame
+    first_epoch = sel_epochs[0]
+    norm = plt.Normalize(vmin=cmin, vmax=cmax)
+    last_valid_scatter = None
+    for idx, model_dir in enumerate(models):
+        row, col = divmod(idx, 3)
+        ax = axes[row, col]
+        ax.axis("on")
+        ax.set_xticks([]); ax.set_yticks([])
+        ax.set_title(model_dir.name, fontsize=9)
+        emb, colour = cache.get((first_epoch, model_dir.name), (None, None))
+        if emb is None or colour is None or emb.shape[0] == 0:
+            txt = "Missing" if (first_epoch, model_dir.name) not in cache else "No samples"
+            ax.text(0.5, 0.5, txt, ha="center", va="center")
+            continue
+        sc = ax.scatter(emb[:, 0], emb[:, 1], c=colour, cmap="viridis", s=12, alpha=0.8, norm=norm)
+        ax.set_xlim(xmin[model_dir.name], xmax[model_dir.name])
+        ax.set_ylim(ymin[model_dir.name], ymax[model_dir.name])
+        scatters[model_dir.name] = sc
+        last_valid_scatter = sc
+
+    suptitle = fig.suptitle(f"PHATE Embedding — {feature_name} — epoch {first_epoch}", fontsize=14)
+    if last_valid_scatter is not None:
+        cbar_ax = fig.add_axes([0.92, 0.15, 0.018, 0.7])
+        cbar = fig.colorbar(last_valid_scatter, cax=cbar_ax)
+        cbar.set_label(feature_name)
+
+    def update(frame_idx: int):
+        epoch = sel_epochs[frame_idx]
+        suptitle.set_text(f"PHATE Embedding — {feature_name} — epoch {epoch}")
+        for idx, model_dir in enumerate(models):
+            row, col = divmod(idx, 3)
+            ax = axes[row, col]
+            emb, colour = cache.get((epoch, model_dir.name), (None, None))
+            if model_dir.name not in scatters:
+                # Nothing to update on this axis
+                continue
+            sc = scatters[model_dir.name]
+            if emb is None or colour is None or emb.shape[0] == 0:
+                # Clear axis and put a message
+                ax.cla()
+                ax.set_xticks([]); ax.set_yticks([])
+                ax.set_title(model_dir.name, fontsize=9)
+                ax.text(0.5, 0.5, "Missing", ha="center", va="center")
+                # Recreate empty scatter to retain colorbar binding
+                sc = ax.scatter([], [], c=[], cmap="viridis", s=12, alpha=0.8, norm=norm)
+                scatters[model_dir.name] = sc
+                ax.set_xlim(xmin[model_dir.name], xmax[model_dir.name])
+                ax.set_ylim(ymin[model_dir.name], ymax[model_dir.name])
+            else:
+                sc.set_offsets(emb)
+                sc.set_array(colour)
+                ax.set_xlim(xmin[model_dir.name], xmax[model_dir.name])
+                ax.set_ylim(ymin[model_dir.name], ymax[model_dir.name])
+        return list(scatters.values())
+
+    anim = animation.FuncAnimation(fig, update, frames=len(sel_epochs), interval=1000 // max(1, fps), blit=False)
+
+    # Select writer
+    out_base = output_dir / f"phate_animation_{feature_name}"
+    output_path = None
+    writer = None
+    fmt_choice = fmt
+    if fmt_choice == "auto":
+        # Prefer mp4 if ffmpeg is available
+        try:
+            writer = animation.FFMpegWriter(fps=fps, bitrate=1800)
+            output_path = out_base.with_suffix(".mp4")
+            fmt_choice = "mp4"
+        except Exception:
+            pass
+    if writer is None and (fmt_choice == "gif" or fmt_choice == "auto"):
+        try:
+            writer = animation.PillowWriter(fps=fps)
+            output_path = out_base.with_suffix(".gif")
+            fmt_choice = "gif"
+        except Exception:
+            pass
+    if writer is None and fmt_choice == "mp4":
+        # Last attempt for mp4
+        writer = animation.FFMpegWriter(fps=fps, bitrate=1800)
+        output_path = out_base.with_suffix(".mp4")
+
+    if writer is None or output_path is None:
+        print("[Embed] Could not create animation writer; skipping animation.")
+        plt.close(fig)
+        return
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    print(f"[Embed] Saving animation to {output_path} ({fmt_choice}, {fps} fps)…", flush=True)
+    anim.save(str(output_path), writer=writer, dpi=dpi)
+    plt.close(fig)
+    print(f"[Embed] Saved animation: {output_path}", flush=True)
 
 
 def prepare_targets(values: np.ndarray, feature_name: str) -> np.ndarray | None:
@@ -1357,6 +1717,7 @@ def main() -> None:
     print(f"  output-dir        = {output_dir}")
     print(f"  embedding-epochs  = {args.embedding_epochs}")
     print(f"  embedding-feature = {args.embedding_feature}")
+    print(f"  embedding-mode    = {args.embedding_mode}")
     print(f"  probe-epochs      = {args.probe_epochs}")
     print(f"  probe-features    = {args.probe_features}")
     print(f"  probe-components  = {args.probe_components}")
@@ -1364,6 +1725,10 @@ def main() -> None:
     print(f"  seed              = {args.seed}")
     print(f"  palette           = {args.palette}")
     print(f"  skip-embedding    = {args.skip_embedding}")
+    print(f"  embedding-animate = {args.embedding_animate}")
+    print(f"  embedding-fps     = {args.embedding_fps}")
+    print(f"  embedding-format  = {args.embedding_format}")
+    print(f"  embedding-dpi     = {args.embedding_dpi}")
     print(f"  skip-probing      = {args.skip_probing}")
     print(f"  progress-interval = {args.progress_interval}")
     print(f"  workers           = {args.workers}")
@@ -1383,6 +1748,21 @@ def main() -> None:
             max_samples=args.max_hidden_samples,
             rng=rng,
         )
+        if args.embedding_animate:
+            # Pass mode and joint-sample cap to the animation function via attributes
+            setattr(animate_phate_embeddings, "_mode", args.embedding_mode)
+            setattr(animate_phate_embeddings, "_joint_samples", args.embedding_joint_samples)
+            animate_phate_embeddings(
+                analysis_dir,
+                output_dir,
+                epochs=args.embedding_epochs,
+                feature_name=args.embedding_feature,
+                max_samples=args.max_hidden_samples,
+                rng=rng,
+                fps=args.embedding_fps,
+                fmt=args.embedding_format,
+                dpi=args.embedding_dpi,
+            )
     if not args.skip_probing:
         run_probes(
             analysis_dir,
@@ -1403,6 +1783,8 @@ def main() -> None:
         "analysis_dir": str(analysis_dir),
         "embedding_epochs": args.embedding_epochs,
         "embedding_feature": args.embedding_feature,
+        "embedding_mode": args.embedding_mode,
+        "embedding_animate": args.embedding_animate,
         "probe_epochs": args.probe_epochs,
         "probe_features": args.probe_features,
         "skip_embedding": args.skip_embedding,

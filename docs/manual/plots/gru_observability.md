@@ -42,7 +42,7 @@ For each checkpoint, this stage:
 Loads extracted data and generates:
 1. **Gate trajectory plots** — mean update/reset over epochs for all models
 2. **Timescale heatmap** — median τ at final epoch, aggregated by architecture
-3. **PHATE embeddings** — 2D projection of hidden states colored by features
+3. **PHATE embeddings** — 2D projection of hidden states colored by features. Static per‑epoch PNGs are produced by default; optionally, an animation over epochs can be rendered with `--embedding-animate`. Use `--embedding-mode joint` to pool samples and fit a single PHATE per model for stable axes across epochs (resource‑capped), or `--embedding-mode separate` (default) for faster per‑epoch fits with feature‑anchored orientation alignment. The grid is sorted by (kernel, channels, GRU).
 4. **Logistic regression probes with control tasks** — train classifiers on hidden states to predict board features, with permuted-label controls to validate signal significance; metrics include accuracy, F1, balanced accuracy, ROC-AUC, Average Precision, and signal-over-control variants.
 
 Best vs final epoch handling
@@ -56,6 +56,7 @@ Best vs final epoch handling
 - **gate_mean_trajectories.png** – two stacked line plots (update mean, reset mean) per model across epochs; legend lists the nine architectures.
 - **timescale_heatmap.png** – heatmap of the median GRU integration timescale at the final epoch, indexed by channels (rows) and GRU size (columns).
 - **phate_epoch_XXX_<feature>.png** – 3×3 grid (one panel per model) of PHATE embeddings of hidden samples at epoch `XXX`; colour encodes the requested board feature (e.g. `move_index`).
+   - When `--embedding-animate` is set, also writes **phate_animation_<feature>.mp4** (or .gif). Colorbar is placed to the right to avoid overlap with the last column.
 - **probe_accuracy.png** – facet-by-feature plot; each subplot shows accuracy over epochs for all models (one line per model) with a shared legend on top. Much more readable than a single crowded panel.
 - **probe_signal_over_control.png** – difference between real and control task accuracy; positive values indicate genuine signal above chance.
 - **probe_comparison.png** – side-by-side comparison of real probe accuracy (left) vs control task accuracy with permuted labels (right).

@@ -3,6 +3,7 @@ import json
 import sys
 from pathlib import Path
 import re
+import os
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import matplotlib.pyplot as plt
@@ -55,6 +56,25 @@ def _gather_checkpoint_files(checkpoint_dir: Path) -> List[Tuple[int, Path]]:
     return checkpoint_files
 
 
+def _estimate_feature_dim(checkpoint_dir: Path, component: str) -> Optional[int]:
+    """Estimate flattened feature dimension by loading a single checkpoint.
+
+    Returns None on failure.
+    """
+    try:
+        pairs = _gather_checkpoint_files(checkpoint_dir)
+        if not pairs:
+            return None
+        # Use last checkpoint as representative
+        _, path = pairs[-1]
+        ckpt = torch.load(path, map_location="cpu", weights_only=False)
+        state_dict = ckpt.get("state_dict", ckpt)
+        vec = _flatten_weights(state_dict, component)
+        return int(vec.shape[0])
+    except Exception:
+        return None
+
+
 def _filter_epochs(pairs: List[Tuple[int, Path]], epoch_min: Optional[int],
                    epoch_max: Optional[int], stride: int) -> List[Tuple[int, Path]]:
     """Subset checkpoints by epoch range and stride."""
@@ -92,12 +112,41 @@ def _flatten_weights(state_dict: Dict[str, torch.Tensor], component: str) -> np.
 
 def _load_run(checkpoint_dir: Path, component: str, epoch_min: Optional[int],
               epoch_max: Optional[int], stride: int) -> Tuple[np.ndarray, List[int]]:
-    """Load checkpoints and return stacked weight matrix and epoch list."""
+    """Load checkpoints and return stacked weight matrix and epoch list.
+
+    Applies a memory-aware stride increase if the estimated embedding matrix (N x D float32)
+    exceeds WT_MAX_EMBED_MEMORY_MB.
+    """
     checkpoint_pairs = _gather_checkpoint_files(checkpoint_dir)
     if not checkpoint_pairs:
         raise FileNotFoundError(f"No checkpoints found in {checkpoint_dir}.")
 
-    filtered = _filter_epochs(checkpoint_pairs, epoch_min, epoch_max, stride)
+    # Apply epoch bounds (without stride) first to estimate memory, then adjust stride
+    filtered_bounds = _filter_epochs(checkpoint_pairs, epoch_min, epoch_max, 1)
+    if not filtered_bounds:
+        raise ValueError("No checkpoints remain after filtering by epoch range.")
+
+    # Memory guard based on feature dim estimate
+    mem_limit_mb = 700.0
+    try:
+        mem_limit_mb = float(os.environ.get("WT_MAX_EMBED_MEMORY_MB", str(mem_limit_mb)))
+    except Exception:
+        pass
+    feature_dim = _estimate_feature_dim(checkpoint_dir, component)
+    stride_eff = max(1, stride)
+    if feature_dim is not None:
+        n_items = len(filtered_bounds)
+        est_mb = (n_items * feature_dim * 4) / (1024 * 1024)
+        if est_mb > mem_limit_mb:
+            factor = int(np.ceil(est_mb / max(mem_limit_mb, 1e-6)))
+            new_stride = max(1, stride_eff * factor)
+            if new_stride > stride_eff:
+                print(
+                    f"  Auto-downsampling: stride {stride_eff} -> {new_stride} to fit ~{mem_limit_mb:.0f}MB (est {est_mb:.0f}MB)."
+                )
+            stride_eff = new_stride
+
+    filtered = filtered_bounds[::stride_eff]
     if not filtered:
         raise ValueError("No checkpoints remain after filtering by epoch range.")
 
@@ -111,6 +160,31 @@ def _load_run(checkpoint_dir: Path, component: str, epoch_min: Optional[int],
 
     matrix = np.stack(weights)
     return matrix, epochs
+
+
+def _manual_pca_projection(X: np.ndarray, target_dim: int) -> np.ndarray:
+    """Reduce features using Gram matrix eigendecomposition (samples << features).
+
+    This avoids constructing huge feature covariance matrices.
+    """
+    n, d = X.shape
+    k = int(max(1, min(target_dim, n - 1)))
+    # center by feature mean
+    data = X.astype(np.float64, copy=True)
+    data -= data.mean(axis=0, keepdims=True)
+    gram = data @ data.T  # (n x n)
+    eigvals, eigvecs = np.linalg.eigh(gram)
+    order = np.argsort(eigvals)[::-1]
+    eigvals = eigvals[order][:k]
+    eigvecs = eigvecs[:, order][:, :k]
+    pos = eigvals > 1e-12
+    if not np.any(pos):
+        return np.zeros((n, 1), dtype=np.float32)
+    eigvals = eigvals[pos]
+    eigvecs = eigvecs[:, pos]
+    scales = np.sqrt(np.clip(eigvals, 0.0, None))
+    reduced = eigvecs * scales
+    return reduced.astype(np.float32, copy=False)
 
 
 def _compute_pca(weights: np.ndarray, random_state: int) -> np.ndarray:
@@ -282,33 +356,84 @@ def analyze_run(checkpoint_dir: Path, component: str, methods: List[str],
     )
 
     weight_results: Dict[str, Dict[str, object]] = {}
-    for method in methods:
-            compute = _EMBEDDERS[method]
-            embedding = compute(weights, random_state=random_state)
-            title = _format_run_title(checkpoint_dir, component, method)
-            figure_path = save_dir / checkpoint_dir.name / f"{component}_{method}.png"
-            _plot_embedding(embedding, epochs, title=title, annotate=annotate,
-                            save_path=figure_path)
-            if export_csv:
-                csv_path = save_dir / checkpoint_dir.name / f"{component}_{method}.csv"
-                _write_points_csv(embedding, epochs, csv_path, id_name="epoch")
-            print(f"Saved {method} embedding for {checkpoint_dir} to {figure_path}")
+    remaining = list(methods)
 
-            # Optionally create an animation that reveals points in order
-            if animate:
-                anim_path = save_dir / checkpoint_dir.name / f"{component}_{method}_anim.gif"
-                try:
-                    _create_checkpoint_animation(embedding, epochs, title, anim_path, fps=animate_fps)
-                except Exception as exc:  # pragma: no cover - runtime errors
-                    print(f"  Animation failed for {checkpoint_dir} {method}: {exc}")
+    # 1) If PCA requested, compute from original weights first
+    if "pca" in remaining:
+        method = "pca"
+        embedding = _compute_pca(weights, random_state=random_state)
+        title = _format_run_title(checkpoint_dir, component, method)
+        figure_path = save_dir / checkpoint_dir.name / f"{component}_{method}.png"
+        _plot_embedding(embedding, epochs, title=title, annotate=annotate, save_path=figure_path)
+        if export_csv:
+            csv_path = save_dir / checkpoint_dir.name / f"{component}_{method}.csv"
+            _write_points_csv(embedding, epochs, csv_path, id_name="epoch")
+        print(f"Saved {method} embedding for {checkpoint_dir} to {figure_path}")
+        if animate:
+            anim_path = save_dir / checkpoint_dir.name / f"{component}_{method}_anim.gif"
+            try:
+                _create_checkpoint_animation(embedding, epochs, title, anim_path, fps=animate_fps)
+            except Exception as exc:
+                print(f"  Animation failed for {checkpoint_dir} {method}: {exc}")
+        weight_results[method] = {
+            "embedding": embedding,
+            "sequence": epochs,
+            "label": label,
+            "directory": checkpoint_dir,
+            "sequence_prefix": "Ep ",
+        }
+        remaining.remove("pca")
 
-            weight_results[method] = {
-                "embedding": embedding,
-                "sequence": epochs,
-                "label": label,
-                "directory": checkpoint_dir,
-                "sequence_prefix": "Ep ",
-            }
+    # 2) For other methods, pre-reduce features to a shared small dimension to save RAM
+    pre_dims_target = 0
+    if any(m in remaining for m in ("tsne", "umap", "phate")):
+        # Common pre-dim: max of recommended per-method caps
+        n = weights.shape[0]
+        # Typical choices: t-SNE 50, UMAP 128, PHATE 128
+        desired = []
+        if "tsne" in remaining:
+            desired.append(50)
+        if "umap" in remaining:
+            desired.append(128)
+        if "phate" in remaining:
+            desired.append(128)
+        pre_dims_target = int(max(desired) if desired else 0)
+        pre_dims_target = max(1, min(pre_dims_target, n - 1))
+        # Use manual PCA that operates on n x n gram to avoid feature-cov construction
+        reduced = _manual_pca_projection(weights, pre_dims_target)
+        # Free the gigantic matrix before heavy methods
+        del weights
+        weights_small = reduced
+    else:
+        weights_small = weights
+
+    for method in remaining:
+        compute = _EMBEDDERS[method]
+        # For PHATE, we've already reduced features; pass as-is
+        data = weights_small
+        embedding = compute(data, random_state=random_state)
+        title = _format_run_title(checkpoint_dir, component, method)
+        figure_path = save_dir / checkpoint_dir.name / f"{component}_{method}.png"
+        _plot_embedding(embedding, epochs, title=title, annotate=annotate, save_path=figure_path)
+        if export_csv:
+            csv_path = save_dir / checkpoint_dir.name / f"{component}_{method}.csv"
+            _write_points_csv(embedding, epochs, csv_path, id_name="epoch")
+        print(f"Saved {method} embedding for {checkpoint_dir} to {figure_path}")
+
+        if animate:
+            anim_path = save_dir / checkpoint_dir.name / f"{component}_{method}_anim.gif"
+            try:
+                _create_checkpoint_animation(embedding, epochs, title, anim_path, fps=animate_fps)
+            except Exception as exc:
+                print(f"  Animation failed for {checkpoint_dir} {method}: {exc}")
+
+        weight_results[method] = {
+            "embedding": embedding,
+            "sequence": epochs,
+            "label": label,
+            "directory": checkpoint_dir,
+            "sequence_prefix": "Ep ",
+        }
 
     representation_results: Dict[str, Dict[str, object]] = {}
     if board_states and board_methods:

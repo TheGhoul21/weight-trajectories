@@ -107,6 +107,43 @@ def plot_centroid_drift(model_name: str, centroids: Dict[int, Dict[int, np.ndarr
     plt.close()
 
 
+def plot_centroid_drift_enhanced(model_name: str, centroids: Dict[int, Dict[int, np.ndarray]], output_dir: Path) -> None:
+    if not centroids:
+        return
+    # Build a tidy frame: rows of (epoch, context, drift)
+    rows = []
+    for ctx, epoch_dict in centroids.items():
+        epochs = sorted(epoch_dict.keys())
+        for e1, e2 in zip(epochs[:-1], epochs[1:]):
+            drift = float(np.linalg.norm(epoch_dict[e2] - epoch_dict[e1]))
+            rows.append({"epoch": e2, "context_index": int(ctx), "drift": drift})
+    if not rows:
+        return
+    df = pd.DataFrame(rows)
+    # Aggregate
+    agg = df.groupby("epoch", as_index=False)["drift"].agg(["mean", "sem"]).reset_index()
+    agg.rename(columns={"mean": "mean", "sem": "sem"}, inplace=True)
+
+    plt.figure(figsize=(9.5, 5))
+    # Faint per-context lines
+    for ctx, g in df.groupby("context_index"):
+        g = g.sort_values("epoch")
+        plt.plot(g["epoch"], g["drift"], color="#8e9aaf", alpha=0.3, linewidth=1.0)
+    # Mean + ribbon
+    plt.plot(agg["epoch"], agg["mean"], color="#3a0ca3", linewidth=2.2, label="mean drift")
+    upper = agg["mean"] + agg["sem"].fillna(0)
+    lower = agg["mean"] - agg["sem"].fillna(0)
+    plt.fill_between(agg["epoch"], lower, upper, color="#7209b7", alpha=0.18, label="±1 SEM")
+    plt.title(f"Stable attractor drift (centroids) — {model_name}")
+    plt.xlabel("Epoch")
+    plt.ylabel("Drift (L2 between successive epochs)")
+    plt.legend(frameon=False)
+    plt.tight_layout()
+    out = output_dir / f"{model_name}_attractor_drift_enhanced.png"
+    plt.savefig(out, dpi=300)
+    plt.close()
+
+
 def plot_spectral_radius(model_name: str, df: pd.DataFrame, output_dir: Path) -> None:
     plt.figure(figsize=(8, 4))
     sns.lineplot(
@@ -126,6 +163,40 @@ def plot_spectral_radius(model_name: str, df: pd.DataFrame, output_dir: Path) ->
     plt.close()
 
 
+def plot_spectral_radius_enhanced(model_name: str, df: pd.DataFrame, output_dir: Path) -> None:
+    """Less cluttered spectral-radius plot with mean±SEM ribbon and faint context lines."""
+    data = df[df["classification"] == "stable"].copy()
+    if data.empty:
+        return
+    # Compute mean and SEM across contexts per epoch
+    agg = (
+        data.groupby(["epoch"], as_index=False)["spectral_radius"]
+        .agg(["mean", "sem"])
+        .reset_index()
+        .rename(columns={"mean": "mean", "sem": "sem"})
+    )
+    # Draw
+    plt.figure(figsize=(9.5, 5))
+    # Faint per-context lines
+    for ctx, g in data.groupby("context_index"):
+        g = g.sort_values("epoch")
+        plt.plot(g["epoch"], g["spectral_radius"], color="#5c8db8", alpha=0.25, linewidth=1.0)
+    # Mean line
+    plt.plot(agg["epoch"], agg["mean"], color="#264653", linewidth=2.2, label="mean (stable)")
+    # Ribbon
+    upper = agg["mean"] + agg["sem"].fillna(0)
+    lower = agg["mean"] - agg["sem"].fillna(0)
+    plt.fill_between(agg["epoch"], lower, upper, color="#2a9d8f", alpha=0.25, label="±1 SEM")
+    plt.title(f"Spectral radius (stable fixed points) — {model_name}")
+    plt.xlabel("Epoch")
+    plt.ylabel("Spectral radius")
+    plt.legend(frameon=False)
+    plt.tight_layout()
+    out = output_dir / f"{model_name}_spectral_radius_enhanced.png"
+    plt.savefig(out, dpi=300)
+    plt.close()
+
+
 def main() -> None:
     args = parse_args()
     fixed_dir = Path(args.fixed_dir)
@@ -141,9 +212,11 @@ def main() -> None:
 
         plot_classification_counts(model_name, summary, output_dir)
         plot_spectral_radius(model_name, summary, output_dir)
+        plot_spectral_radius_enhanced(model_name, summary, output_dir)
 
         centroids = compute_context_centroids(model_dir, summary)
         plot_centroid_drift(model_name, centroids, output_dir)
+        plot_centroid_drift_enhanced(model_name, centroids, output_dir)
 
     print(f"Fixed-point evolution figures saved to {output_dir}")
 

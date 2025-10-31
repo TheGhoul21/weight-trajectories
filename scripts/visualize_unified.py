@@ -417,7 +417,7 @@ def plot_channel_sweep_comparison(metrics_data, history_data, output_dir):
 def main():
     parser = argparse.ArgumentParser(description='Generate unified trajectory visualizations')
     parser.add_argument('--metrics-dir', default='diagnostics/trajectory_analysis')
-    parser.add_argument('--checkpoint-dir', default='checkpoints/save_every_3')
+    parser.add_argument('--checkpoint-dir', default='checkpoints/save_every_1')
     parser.add_argument('--output-dir', default='visualizations')
     args = parser.parse_args()
 

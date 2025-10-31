@@ -92,6 +92,8 @@ Analysis & Plots
 GRU Observability
   observability extract      Collect gates, timescales, hidden samples
   observability analyze      Gates, PHATE, probes; runs MI afterwards
+    # PHATE tips: add '--embedding-animate' for a movie; use '--embedding-mode joint' for stable axes
+    # Example: ./wt.sh observability analyze --embedding-animate --embedding-mode joint --embedding-joint-samples 250
   observability mi           Run mutual information analysis only
   observability fixed        Fixed-point finding
   observability evolve       Attractor evolution visualization

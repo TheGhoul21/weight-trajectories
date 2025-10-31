@@ -33,8 +33,16 @@ analyze (plots + linear probes)
 - Options
   - --analysis-dir [default diagnostics/gru_observability]
   - --output-dir [default visualizations/gru_observability]
-  - --embedding-epochs [list, default 3 30 60 100]
+  - --embedding-epochs [list, default 1 3 5 … 99]
   - --embedding-feature [default move_index]
+  - --embedding-animate [flag] render an animated 3×3 grid over epochs (saved as mp4 or gif)
+  - --embedding-mode [{separate, joint}, default separate]
+      • separate: fit PHATE independently per epoch (fast; orientation stabilized via feature-correlated axis/sign)
+      • joint: pool a capped number of samples per epoch and fit PHATE once per model for stable axes across epochs
+  - --embedding-joint-samples [int, default 300] per-epoch cap used when --embedding-mode=joint
+  - --embedding-fps [int, default 4] animation framerate
+  - --embedding-format [{auto, mp4, gif}, default auto]
+  - --embedding-dpi [int, default 150] animation DPI
   - --probe-epochs [list, default 30 60 100]
   - --probe-features [list, default current_player immediate_win_current immediate_win_opponent]
   - --probe-components [list, default gru] (`gru`, `cnn`, or both)
@@ -48,6 +56,7 @@ analyze (plots + linear probes)
   - gate_mean_trajectories.png
   - timescale_heatmap.png
   - phate_epoch_XXX_<feature>.png (unless skipped)
+  - phate_animation_<feature>.mp4 (or .gif) when `--embedding-animate` is set; grid sorted by (kernel, channels, GRU)
   - probe_results.csv and probe_accuracy.png (per requested component; CNN probes write under `cnn/`)
   - probe_confusion_matrices_epoch_XXX.png, probe_feature_summary_epoch_XXX.png, probe_score_density_epoch_XXX.png (final probed epoch)
   - probe_confusion_matrices_best.png, probe_feature_summary_best.png, probe_score_density_best.png (aggregated across models at their own best validation-loss epoch)
@@ -105,6 +114,8 @@ evolve (visualize fixed-point evolution)
   - <model>_classification_counts.png
   - <model>_spectral_radius.png
   - <model>_attractor_drift.png
+  - <model>_spectral_radius_enhanced.png (mean±SEM ribbon + faint per-context lines)
+  - <model>_attractor_drift_enhanced.png (mean±SEM ribbon + faint per-context lines)
 
 Explainers
 - See [GRU Observability](../plots/gru_observability.md)
