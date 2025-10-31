@@ -32,16 +32,12 @@ class TrajectoryVisualizer:
     """Visualize weight and representation trajectories using PHATE"""
 
     def __init__(self, checkpoint_dir, device='cpu'):
-        """
-        Args:
-            checkpoint_dir: Directory containing saved checkpoints
-            device: torch device
-        """
+        """Initialize helper for a specific checkpoint directory."""
         self.checkpoint_dir = Path(checkpoint_dir)
         self.device = device
 
-        # Load training history
-        history_path = self.checkpoint_dir / "training_history.json"
+        # Load training history if available
+        history_path = self.checkpoint_dir / 'training_history.json'
         if history_path.exists():
             with open(history_path, 'r') as f:
                 self.history = json.load(f)
@@ -49,8 +45,8 @@ class TrajectoryVisualizer:
             self.history = None
 
         # Extract model config from directory name
-        # Format: k{kernel}_c{channels}_gru{gru}_{timestamp}
-        match = re.search(r'k(\d+)_c(\d+)_gru(\d+)', str(checkpoint_dir))
+        # Expected format: k{kernel}_c{channels}_gru{gru}_<timestamp>
+        match = re.search(r'k(\d+)_c(\d+)_gru(\d+)', str(self.checkpoint_dir))
         if match:
             self.kernel_size = int(match.group(1))
             self.cnn_channels = int(match.group(2))
@@ -78,52 +74,53 @@ class TrajectoryVisualizer:
             return {}
 
         markers = {}
+        # Minimal validation loss epoch
         min_epoch = int(np.argmin(val_losses)) + 1
         min_idx = self._closest_epoch_index(epochs, min_epoch)
         markers['min'] = {
             'epoch': min_epoch,
             'loss': float(val_losses[min_epoch - 1]),
-            'index': min_idx
+            'index': min_idx,
         }
 
-        final_epoch = len(val_losses)
+        # Final epoch in history (may not be saved)
+        final_epoch = int(len(val_losses))
         final_idx = self._closest_epoch_index(epochs, final_epoch)
         markers['final'] = {
             'epoch': final_epoch,
-            'loss': float(val_losses[-1]),
-            'index': final_idx
+            'loss': float(val_losses[final_epoch - 1]),
+            'index': final_idx,
         }
-
         return markers
 
     def _gather_checkpoint_files(self):
-        """Collect checkpoint files sorted by epoch."""
-        checkpoint_files = []
-        for cp_file in self.checkpoint_dir.glob("weights_epoch_*.pt"):
-            match = re.search(r'weights_epoch_(\d+)\.pt', cp_file.name)
-            if not match:
+        """Collect (epoch, path) pairs sorted by epoch from the checkpoint directory."""
+        pairs = []
+        for path in self.checkpoint_dir.glob("weights_epoch_*.pt"):
+            name = path.stem
+            try:
+                epoch = int(name.replace("weights_epoch_", ""))
+            except ValueError:
                 continue
-            checkpoint_files.append((int(match.group(1)), cp_file))
-
-        if not checkpoint_files:
-            raise ValueError(f"No checkpoints found in {self.checkpoint_dir}")
-
-        checkpoint_files.sort(key=lambda item: item[0])
-        return checkpoint_files
+            pairs.append((epoch, path))
+        pairs.sort(key=lambda item: item[0])
+        return pairs
 
     def load_checkpoints(self):
-        """Load all saved checkpoints"""
-        checkpoint_files = self._gather_checkpoint_files()
-        print(f"Found {len(checkpoint_files)} checkpoints")
-
-        checkpoints = []
-        for expected_epoch, cp_file in checkpoint_files:
-            cp = torch.load(cp_file, map_location=self.device, weights_only=False)
-            cp_epoch = cp.get('epoch', expected_epoch)
-            cp['epoch'] = cp_epoch
-            checkpoints.append(cp)
-
-        return checkpoints
+        """Load all checkpoints as a list of dicts with epoch, path, and state_dict."""
+        pairs = self._gather_checkpoint_files()
+        if not pairs:
+            raise FileNotFoundError(f"No checkpoints found in {self.checkpoint_dir}")
+        out = []
+        for epoch, path in pairs:
+            checkpoint = torch.load(path, map_location=self.device, weights_only=False)
+            state_dict = checkpoint.get('state_dict', checkpoint)
+            out.append({
+                'epoch': int(checkpoint.get('epoch', epoch)),
+                'path': path,
+                'state_dict': state_dict,
+            })
+        return out
 
     def get_latest_checkpoint_path(self):
         """Return the path to the most recent checkpoint, sorted by epoch."""
@@ -380,36 +377,28 @@ class TrajectoryVisualizer:
                                                 alpha=(tphate_kernel_alpha or 1.0),
                                                 tau=(tphate_kernel_tau or 3.0))
             try:
-                phate_op = phate.PHATE(
-                    n_components=2,
-                    knn=knn,
-                    t=phate_t if phate_t is not None else 10,
-                    decay=phate_decay if phate_decay is not None else 'auto',
-                    verbose=False,
-                    n_pca=None,
-                    knn_dist='precomputed'
-                )
+                _kwargs = dict(n_components=2, knn=knn, t=phate_t if phate_t is not None else 10,
+                                verbose=False, n_pca=None, knn_dist='precomputed')
+                if phate_decay is not None:
+                    _kwargs['decay'] = phate_decay
+                phate_op = phate.PHATE(**_kwargs)
                 weights_phate = phate_op.fit_transform(D)
             except Exception:
                 # Fallback to feature-based PHATE
-                phate_op = phate.PHATE(
-                    n_components=2,
-                    knn=knn,
-                    t=phate_t if phate_t is not None else 10,
-                    decay=phate_decay if phate_decay is not None else 'auto',
-                    verbose=False,
-                    n_pca=None
-                )
+                _kwargs = dict(n_components=2, knn=knn, t=phate_t if phate_t is not None else 10,
+                                verbose=False, n_pca=None)
+                if phate_decay is not None:
+                    _kwargs['decay'] = phate_decay
+                phate_op = phate.PHATE(**_kwargs)
                 weights_phate = phate_op.fit_transform(weights_for_phate)
         else:
-            phate_op = phate.PHATE(
-                n_components=2,
-                knn=knn,
-                t=phate_t if phate_t is not None else 10,
-                decay=phate_decay if phate_decay is not None else 'auto',
-                verbose=False,
-                n_pca=None
-            )
+            # Sanitize input to avoid duplicate rows causing zero-distance issues in graph kernel
+            weights_for_phate = _sanitize_phate_input(weights_for_phate)
+            _kwargs = dict(n_components=2, knn=knn, t=phate_t if phate_t is not None else 10,
+                            verbose=False, n_pca=None)
+            if phate_decay is not None:
+                _kwargs['decay'] = phate_decay
+            phate_op = phate.PHATE(**_kwargs)
             weights_phate = phate_op.fit_transform(weights_for_phate)
 
         # Create plot
@@ -650,14 +639,11 @@ class TrajectoryVisualizer:
                             phate_decay=None, use_tphate=False, tphate_alpha=1.0,
                             tphate_mode='time-feature', tphate_delay=None, tphate_lags=None,
                             tphate_kernel=False, tphate_kernel_alpha=1.0, tphate_kernel_tau=3.0):
-        """Create a 2x2 summary plot with all visualizations.
-
-        Args:
-            phate_n_pca: Optional PCA dimension applied before each PHATE fit.
-            phate_knn: Optional PHATE knn override shared across subplots.
-            phate_t: Optional diffusion time parameter.
-            phate_decay: Optional decay parameter.
-        """
+        # Create a two-by-two summary plot (CNN, GRU, losses, component losses).
+        # phate_n_pca: Optional PCA dimension applied before each PHATE fit.
+        # phate_knn: Optional PHATE knn override shared across subplots.
+        # phate_t: Optional diffusion time parameter.
+        # phate_decay: Optional decay parameter.
         print("\nCreating summary visualization...")
 
         checkpoints = self.load_checkpoints()
@@ -695,20 +681,26 @@ class TrajectoryVisualizer:
             groups = np.zeros(n_samples, dtype=np.int32)
             D = self._temporal_blended_distance(cnn_input, groups, tphate_kernel_alpha or 1.0, tphate_kernel_tau or 3.0)
             try:
-                phate_op_cnn = phate.PHATE(n_components=2, knn=knn, t=phate_t if phate_t is not None else 10,
-                                           decay=phate_decay if phate_decay is not None else 'auto', verbose=False,
-                                           n_pca=None, knn_dist='precomputed')
+                _kwargs = dict(n_components=2, knn=knn, t=phate_t if phate_t is not None else 10,
+                                verbose=False, n_pca=None, knn_dist='precomputed')
+                if phate_decay is not None:
+                    _kwargs['decay'] = phate_decay
+                phate_op_cnn = phate.PHATE(**_kwargs)
                 cnn_phate = phate_op_cnn.fit_transform(D)
             except Exception:
-                phate_op_cnn = phate.PHATE(n_components=2, knn=knn, t=phate_t if phate_t is not None else 10,
-                                           decay=phate_decay if phate_decay is not None else 'auto', verbose=False,
-                                           n_pca=None)
-                cnn_phate = phate_op_cnn.fit_transform(cnn_input)
+                _kwargs = dict(n_components=2, knn=knn, t=phate_t if phate_t is not None else 10,
+                                verbose=False, n_pca=None)
+                if phate_decay is not None:
+                    _kwargs['decay'] = phate_decay
+                phate_op_cnn = phate.PHATE(**_kwargs)
+                cnn_phate = phate_op_cnn.fit_transform(_sanitize_phate_input(cnn_input))
         else:
-            phate_op_cnn = phate.PHATE(n_components=2, knn=knn, t=phate_t if phate_t is not None else 10,
-                                       decay=phate_decay if phate_decay is not None else 'auto', verbose=False,
-                                       n_pca=None)
-            cnn_phate = phate_op_cnn.fit_transform(cnn_input)
+            _kwargs = dict(n_components=2, knn=knn, t=phate_t if phate_t is not None else 10,
+                            verbose=False, n_pca=None)
+            if phate_decay is not None:
+                _kwargs['decay'] = phate_decay
+            phate_op_cnn = phate.PHATE(**_kwargs)
+            cnn_phate = phate_op_cnn.fit_transform(_sanitize_phate_input(cnn_input))
 
         print("  Computing GRU PHATE...")
         resolved_n_pca_gru, info_gru = self._resolve_phate_n_pca(gru_weights.shape[1], n_samples,
@@ -733,20 +725,26 @@ class TrajectoryVisualizer:
             groups = np.zeros(n_samples, dtype=np.int32)
             D = self._temporal_blended_distance(gru_input, groups, tphate_kernel_alpha or 1.0, tphate_kernel_tau or 3.0)
             try:
-                phate_op_gru = phate.PHATE(n_components=2, knn=knn, t=phate_t if phate_t is not None else 10,
-                                           decay=phate_decay if phate_decay is not None else 'auto', verbose=False,
-                                           n_pca=None, knn_dist='precomputed')
+                _kwargs = dict(n_components=2, knn=knn, t=phate_t if phate_t is not None else 10,
+                                verbose=False, n_pca=None, knn_dist='precomputed')
+                if phate_decay is not None:
+                    _kwargs['decay'] = phate_decay
+                phate_op_gru = phate.PHATE(**_kwargs)
                 gru_phate = phate_op_gru.fit_transform(D)
             except Exception:
-                phate_op_gru = phate.PHATE(n_components=2, knn=knn, t=phate_t if phate_t is not None else 10,
-                                           decay=phate_decay if phate_decay is not None else 'auto', verbose=False,
-                                           n_pca=None)
-                gru_phate = phate_op_gru.fit_transform(gru_input)
+                _kwargs = dict(n_components=2, knn=knn, t=phate_t if phate_t is not None else 10,
+                                verbose=False, n_pca=None)
+                if phate_decay is not None:
+                    _kwargs['decay'] = phate_decay
+                phate_op_gru = phate.PHATE(**_kwargs)
+                gru_phate = phate_op_gru.fit_transform(_sanitize_phate_input(gru_input))
         else:
-            phate_op_gru = phate.PHATE(n_components=2, knn=knn, t=phate_t if phate_t is not None else 10,
-                                       decay=phate_decay if phate_decay is not None else 'auto', verbose=False,
-                                       n_pca=None)
-            gru_phate = phate_op_gru.fit_transform(gru_input)
+            _kwargs = dict(n_components=2, knn=knn, t=phate_t if phate_t is not None else 10,
+                            verbose=False, n_pca=None)
+            if phate_decay is not None:
+                _kwargs['decay'] = phate_decay
+            phate_op_gru = phate.PHATE(**_kwargs)
+            gru_phate = phate_op_gru.fit_transform(_sanitize_phate_input(gru_input))
 
         # Create 2x2 plot
         fig = plt.figure(figsize=(16, 12))
@@ -1062,24 +1060,25 @@ class TrajectoryVisualizer:
             groups = np.array([0] * len(cnn_weights) + [1] * len(gru_weights), dtype=np.int32)
             D = self._temporal_blended_distance(phate_input, groups, tphate_kernel_alpha or 1.0, tphate_kernel_tau or 3.0)
             try:
-                phate_op = phate.PHATE(n_components=2, knn=knn, t=phate_t if phate_t is not None else 10,
-                                       decay=phate_decay if phate_decay is not None else 'auto', verbose=False,
-                                       n_pca=None, knn_dist='precomputed')
+                _kwargs = dict(n_components=2, knn=knn, t=phate_t if phate_t is not None else 10,
+                               verbose=False, n_pca=None, knn_dist='precomputed')
+                if phate_decay is not None:
+                    _kwargs['decay'] = phate_decay
+                phate_op = phate.PHATE(**_kwargs)
                 embedding = phate_op.fit_transform(D)
             except Exception:
-                phate_op = phate.PHATE(n_components=2, knn=knn, t=phate_t if phate_t is not None else 10,
-                                       decay=phate_decay if phate_decay is not None else 'auto', verbose=False,
-                                       n_pca=None)
+                _kwargs = dict(n_components=2, knn=knn, t=phate_t if phate_t is not None else 10,
+                               verbose=False, n_pca=None)
+                if phate_decay is not None:
+                    _kwargs['decay'] = phate_decay
+                phate_op = phate.PHATE(**_kwargs)
                 embedding = phate_op.fit_transform(phate_input)
         else:
-            phate_op = phate.PHATE(
-                n_components=2,
-                knn=knn,
-                t=phate_t if phate_t is not None else 10,
-                decay=phate_decay if phate_decay is not None else 'auto',
-                verbose=False,
-                n_pca=None
-            )
+            _kwargs = dict(n_components=2, knn=knn, t=phate_t if phate_t is not None else 10,
+                           verbose=False, n_pca=None)
+            if phate_decay is not None:
+                _kwargs['decay'] = phate_decay
+            phate_op = phate.PHATE(**_kwargs)
             embedding = phate_op.fit_transform(phate_input)
 
         cnn_embed = embedding[:len(cnn_weights)]
@@ -1218,6 +1217,43 @@ def _adjust_embedding(run_embed, strategy):
             anchored = anchored / max_dist
         return anchored
     return run_embed
+
+
+def _sanitize_phate_input(X: np.ndarray, rng_seed: int = 0) -> np.ndarray:
+    """Make PHATE input robust by removing NaNs/Infs and jittering duplicate rows.
+
+    - Replaces NaN/Inf with 0.0 (safe neutral fill after mean-centering/PCA).
+    - Adds tiny deterministic jitter to repeated rows to avoid zero-distance degeneracies
+      that can produce NaNs in graphtools kernel normalization.
+    """
+    X = np.array(X, dtype=np.float32, copy=True)
+    # Ensure finite values
+    np.nan_to_num(X, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+    # Jitter exact duplicates
+    try:
+        uniq, inverse, counts = np.unique(X, axis=0, return_inverse=True, return_counts=True)
+        if np.any(counts > 1):
+            rng = np.random.default_rng(rng_seed)
+            scale = float(np.std(X))
+            eps = 1e-5 * (scale if scale > 0 else 1.0)
+            seen = {}
+            for i, g in enumerate(inverse):
+                c = seen.get(int(g), 0)
+                if c > 0:
+                    X[i] += (eps * rng.standard_normal(X.shape[1])).astype(np.float32)
+                seen[int(g)] = c + 1
+            # Second pass: if duplicates remain due to numerical ties, add tiny deterministic per-row offset
+            uniq2, inverse2, counts2 = np.unique(X, axis=0, return_inverse=True, return_counts=True)
+            if np.any(counts2 > 1):
+                eps2 = 1e-6 * (scale if scale > 0 else 1.0)
+                for i in range(X.shape[0]):
+                    X[i, 0] += np.float32(eps2 * ((i % 97) / 97.0))
+    except Exception:
+        # Be conservative: add a minuscule global jitter if uniqueness fails
+        scale = float(np.std(X))
+        eps = 1e-7 * (scale if scale > 0 else 1.0)
+        X = X + eps
+    return X
 
 
 def _create_ablation_animation(ax, run_data, component, animation_path, fps=2):
@@ -1359,27 +1395,44 @@ def visualize_ablation_weight_trajectories(checkpoint_dirs, component='cnn', dev
                                                             tphate_kernel_alpha or 1.0,
                                                             tphate_kernel_tau or 3.0)
         try:
-            phate_op = phate.PHATE(n_components=2, knn=knn,
-                                   t=phate_t if phate_t is not None else 10,
-                                   decay=phate_decay if phate_decay is not None else 40,
-                                   verbose=False, n_pca=None, knn_dist='precomputed')
+            _kwargs = dict(n_components=2, knn=knn,
+                           t=phate_t if phate_t is not None else 10,
+                           verbose=False, n_pca=None, knn_dist='precomputed')
+            if phate_decay is not None:
+                _kwargs['decay'] = phate_decay
+            phate_op = phate.PHATE(**_kwargs)
             embedding = phate_op.fit_transform(D)
         except Exception:
-            phate_op = phate.PHATE(n_components=2, knn=knn,
-                                   t=phate_t if phate_t is not None else 10,
-                                   decay=phate_decay if phate_decay is not None else 40,
-                                   verbose=False, n_pca=None)
+            _kwargs = dict(n_components=2, knn=knn,
+                           t=phate_t if phate_t is not None else 10,
+                           verbose=False, n_pca=None)
+            if phate_decay is not None:
+                _kwargs['decay'] = phate_decay
+            phate_op = phate.PHATE(**_kwargs)
             embedding = phate_op.fit_transform(phate_input)
     else:
-        phate_op = phate.PHATE(
-            n_components=2,
-            knn=knn,
-            t=phate_t if phate_t is not None else 10,
-            decay=phate_decay if phate_decay is not None else 40,
-            verbose=False,
-            n_pca=None
-        )
-        embedding = phate_op.fit_transform(phate_input)
+        # Sanitize input to avoid zero-distance duplicates causing NaNs in graphtools normalization
+        phate_input = _sanitize_phate_input(phate_input)
+        try:
+            _kwargs = dict(n_components=2, knn=knn,
+                           t=phate_t if phate_t is not None else 10,
+                           verbose=False, n_pca=None)
+            if phate_decay is not None:
+                _kwargs['decay'] = phate_decay
+            phate_op = phate.PHATE(**_kwargs)
+            embedding = phate_op.fit_transform(phate_input)
+        except Exception as e:
+            # Retry with slightly larger neighbourhood and fresh sanitization
+            print(f"  PHATE failed ({e}); retrying with knn={min(knn+2, phate_input.shape[0]-1)}.")
+            knn_retry = max(2, min(knn + 2, phate_input.shape[0] - 1))
+            phate_input = _sanitize_phate_input(phate_input, rng_seed=1)
+            _kwargs = dict(n_components=2, knn=knn_retry,
+                           t=phate_t if phate_t is not None else 10,
+                           verbose=False, n_pca=None)
+            if phate_decay is not None:
+                _kwargs['decay'] = phate_decay
+            phate_op = phate.PHATE(**_kwargs)
+            embedding = phate_op.fit_transform(phate_input)
 
     fig, ax = plt.subplots(figsize=(10, 8))
     cmap = plt.colormaps['tab20'].resampled(max(len(run_data), 1))
