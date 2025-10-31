@@ -18,6 +18,8 @@ Our approach treats trained GRUs as **dynamical systems** that implement computa
 
 ## 1. RNNs as Dynamical Systems
 
+**Idea in Brief**: Freeze the inputs to a trained GRU and you get a discrete-time dynamical system. Understanding the computation reduces to charting how hidden states flow under repeated application of the GRU update. The math below unpacks the update rule and shows how gates translate into eigenvalues and timescales.
+
 ### 1.1 The Fundamental Equation
 
 A GRU with frozen CNN features defines a **discrete-time dynamical system**:
@@ -72,9 +74,37 @@ This perspective:
 - Explains why gate saturation matters (z→0 halts dynamics)
 - Suggests analysis techniques from control theory
 
+### 1.4 Gates, Eigenvalues, and Effective Timescales
+
+To connect observable gate statistics to the linearized dynamics, expand the GRU update around a hidden state `h̄` with input `x*`. The Jacobian with respect to the previous hidden state is:
+
+```
+J = ∂h_t / ∂h_{t-1} = (1 - z_t) ⊙ I + diag(z_t ⊙ (1 - h̃_t^2)) · U_h · diag(r_t) + diag(z_t ⊙ (1 - h̃_t^2)) · U_h · diag(h_{t-1}) · ∂r_t/∂h_{t-1} - diag(h_{t-1} - h̃_t) · ∂z_t/∂h_{t-1}
+```
+
+where:
+- `∂z_t/∂h_{t-1} = diag(z_t ⊙ (1 - z_t)) · U_z`
+- `∂r_t/∂h_{t-1} = diag(r_t ⊙ (1 - r_t)) · U_r`
+
+Key implications:
+
+- **Update gate (z)** shrinks eigenvalues toward zero. When `z_t ≈ 0`, the Jacobian eigenvalues are dominated by `(1 - z_t)` and dynamics become slow—hidden units behave as leaky integrators with time constant `τ ≈ 1 / (1 - z̄)`.
+- **Reset gate (r)** modulates the contribution of recurrent matrix `U_h`. When `r_t` saturates at zero, recurrent feedback is suppressed and memory is lost.
+- **Nonlinear term `(1 - h̃_t^2)`** attenuates feedback when the candidate state saturates. Saturated tanh units reduce effective gain regardless of gates.
+
+In practice we estimate the **effective timescale** of unit `i` with:
+
+```
+τ_i = -Δt / ln |λ_i|
+```
+
+where `λ_i` is the i-th eigenvalue of the empirical Jacobian (computed per checkpoint using the frozen gates from a batch of trajectories) and `Δt=1` for discrete timesteps. `scripts/extract_gru_dynamics.py` reports gate histograms and the eigenvalue spectrum so that we can track these timescales across training.
+
 ---
 
 ## 2. Fixed Points and Attractors
+
+**Idea in Brief**: Fixed points are the “resting places” of the GRU’s dynamics; their stability tells us whether the network stores memories, makes decisions, or balances on saddle ridges. Find the points, linearise around them, and you recover the computational skeleton of the policy.
 
 ### 2.1 Fixed Points: Equilibria of Computation
 
@@ -132,9 +162,35 @@ While we focus on fixed points, RNNs can also exhibit:
 - **Line attractors**: continuous manifolds of stable states (e.g., for analog working memory)
 - **Chaotic attractors**: sensitive dependence on initial conditions (avoided in well-trained networks)
 
+### 2.5 Practical Fixed-Point Workflow
+
+The optimisation problem
+
+```
+min_h ||h - f(h, x*; θ)||₂²
+```
+
+with respect to `h` defines fixed points for a frozen input context `x*`. A robust pipeline mirrors Sussillo & Barak (2013):
+
+1. **Select contexts**: choose representative board states (e.g., imminent win, forced defence, neutral midgame). Freeze `x*` by caching CNN features.
+2. **Initialise**: sample `h₀` from replayed trajectories or Gaussian noise with variance matching hidden activations.
+3. **Optimise**: run L-BFGS-B or conjugate-gradient descent on the objective above. Stop when residual `||h - f(h)||` < 1e-6 or optimisation stalls.
+4. **De-duplicate**: cluster converged points with cosine/Euclidean distance to avoid counting the same attractor multiple times.
+5. **Classify stability**: compute the Jacobian `J(h*)`. Use eigenvalues to tag each fixed point as attractor, saddle, or repeller (see §2.2).
+6. **Track across epochs**: repeat for selected checkpoints to study attractor movement and basin changes.
+
+Implementation notes:
+- Use automatic differentiation (`torch.autograd.functional.jacobian`) so gradients stay exact.
+- Warm starts from replay trajectories reduce optimisation time and bias toward behaviourally relevant attractors.
+- Store `(x*, h*, λ)` triples so that downstream scripts (visualisations, intervention studies) can reuse the catalogue.
+
+`scripts/find_fixed_points.py` is the planned entry point for this workflow; pseudo-code appears in `case_studies.md` (Case Study 1).
+
 ---
 
 ## 3. Information Theory for Interpretability
+
+**Idea in Brief**: Mutual information measures how much a hidden activation reduces uncertainty about a game feature. It complements dynamical analysis by telling us *what* is encoded, independent of whether the encoding is linearly accessible.
 
 ### 3.1 Mutual Information as a Probe-Free Measure
 
@@ -194,9 +250,28 @@ Information theory originated in statistical mechanics. Analogies:
 
 Recent work (Maheswaranathan & Williams, 2024) formalizes neurons as optimizing local information-theoretic objectives, bridging AI and neuroscience.
 
+### 3.5 Estimator Choice and Sample Complexity
+
+Mutual information estimators vary in bias, variance, and computational cost:
+
+- **k-NN (Kraskov et al., 2004)**: default in this repo. Bias decreases with larger `k`; variance decreases with more samples. Works well up to ~10³ samples per checkpoint.
+- **Kernel density**: accurate for low-dimensional continuous variables but scales poorly with dimension.
+- **Neural estimators (MINE, NWJ)**: flexible and differentiable but high variance; require careful regularisation and validation against simpler baselines.
+
+Guidelines for Connect Four experiments:
+
+1. **Sample budget**: aim for ≥5 000 hidden states per checkpoint to stabilise per-dimension MI. If data are scarce, aggregate over multiple game trajectories with stratified sampling by feature labels.
+2. **Bin continuous targets** when using scikit-learn’s `mutual_info_classif` to avoid estimator drift; alternatively switch to `mutual_info_regression` with scaled inputs.
+3. **Bootstrap confidence intervals**: resample hidden states to measure estimator variability. Large error bars indicate the need for more data or an alternative estimator.
+4. **Control comparisons**: compute MI on shuffled labels to confirm estimator is not reporting artefacts from marginal distributions.
+
+The CLI wrapper in `scripts/compute_hidden_mutual_info.py` implements these practices and caches intermediate datasets under `diagnostics/` for reproducibility.
+
 ---
 
 ## 4. Manifold Learning and Trajectory Embedding
+
+**Idea in Brief**: Training checkpoints and hidden states often lie on low-dimensional manifolds. Manifold learning tools—especially PHATE and T-PHATE—let us see regime changes and strategic structure that raw coordinates obscure.
 
 ### 4.1 The Manifold Hypothesis
 
@@ -264,6 +339,8 @@ Recent work (Maheswaranathan & Williams, 2024) formalizes neurons as optimizing 
 
 ## 5. Neuroscience Foundations: Computation via Attractors
 
+**Idea in Brief**: The same attractor motifs that appear in cortex (point, line, ring, slow manifolds) surface in trained GRUs. Neuroscience offers both terminology and experimental paradigms for interpreting what we observe.
+
 ### 5.1 Attractor Networks in the Brain
 
 Decades of neuroscience research (Khona & Fiete, 2022; Wang, 2001) established that **attractor dynamics** underlie:
@@ -303,6 +380,8 @@ For Connect Four, we expect **point attractors** corresponding to strategic mode
 ---
 
 ## 6. Learning Dynamics: How Attractors Emerge
+
+**Idea in Brief**: Training is not just optimisation in weight space; it is the gradual sculpting of attractor landscapes. Track how fixed points, Jacobian spectra, and mutual information evolve checkpoint by checkpoint to link learning curves with internal computation.
 
 ### 6.1 Training as Trajectory Through Parameter Space
 
@@ -352,6 +431,8 @@ Empirical observations (Huang et al., 2024; Saxe et al., 2019):
 ---
 
 ## 7. Connecting the Frameworks
+
+**Idea in Brief**: Weight-space analysis, dynamical systems, information theory, and manifold learning describe the same phenomenon from different angles. Combining them yields a mechanistic narrative of how the GRU plays Connect Four.
 
 ### 7.1 The Full Picture
 

@@ -1,86 +1,180 @@
 # GRU Observability: Intuition, Methods, and Recommendations
 
-Provides a top‑down scientific background for analyzing GRU dynamics in Connect Four. Starts with the motivation and questions, then introduces methods at a high level, and finally offers concrete recommendations and pitfalls. Detailed algorithms and command‑level documentation are covered in Plot Interpretation and Theoretical Foundations.
+Imagine opening a fresh set of training checkpoints and trying to answer three questions: Is the GRU remembering what it should, has it learned the right strategic concepts, and where do those behaviours live in state space? `Observability` is the guide for that investigation. It starts with the questions, maps them to diagnostics, and anchors every recommendation in the formal results summarised in `theoretical_foundations.md`.
 
-## Why Study GRU Dynamics
+---
 
-Training a ResNet+GRU policy/value network induces temporal computation: the GRU must decide what to remember, when to overwrite, and how to transform input into actionable state. Observability aims to answer three questions:
+## Diagnostic Modules at a Glance
 
-- Memory: how long does the network retain information and when does it choose to keep vs overwrite?
-- Representation: which board variables are encoded and how disentangled are they?
-- Mechanism: does learning organize into discrete modes (attractors) corresponding to strategies?
+| Module | Core questions | Inputs | Primary outputs | Scripts / notebooks |
+| --- | --- | --- | --- | --- |
+| Gates and timescales | Are we retaining memory? When do we overwrite state? What are the effective dynamical timescales? | Checkpoints, replay buffer of trajectories | Gate histograms, spectral radii, per-unit time constants | `scripts/extract_gru_dynamics.py` |
+| Hidden-state geometry | How do representations organise in hidden space? Which features carve the state manifold? | Hidden-state samples with board-feature labels | PHATE/T-PHATE embeddings, feature-coloured trajectories | `src/visualize_trajectories.py --viz-type hidden` |
+| Probing and mutual information | Which features are encoded, and are they linearly accessible? How specialised are neurons? | Hidden-state matrices plus labels (and shuffled controls) | Probe accuracy curves, MI heatmaps, per-dimension distributions | `scripts/run_linear_probes.py` (planned), `scripts/compute_hidden_mutual_info.py` |
+| Fixed points and attractor evolution | Which stable modes exist? How do they move as training progresses? | Frozen CNN embeddings for canonical boards, optimisation loop | Fixed-point catalogue, Jacobian spectra, basin assignments | `scripts/find_fixed_points.py` (in development) |
+| Training-phase synopsis | When do representations crystallise relative to validation metrics? | Aggregated outputs from the modules above | Timeline plots, regime annotations | `notebooks/observability/*.ipynb` |
 
-## High‑Level Intuition
+---
 
-- Gates as policy over memory: the update gate controls retention; the reset gate controls access to past state when forming new content. Stable training typically shows moderate increases in the update gate over epochs (more selective retention) without saturating.
-- Timescales as memory depth: eigenvalue magnitudes of the recurrent transformation imply how quickly information decays. Larger hidden sizes generally allow longer memory, but “longer” is not always better for generalization.
-- Geometry reveals variables: embeddings of hidden states colored by interpretable board features indicate whether learned representations align with strategic factors (threats, turn, phase).
-- Probing tests accessibility: linear probes quantify whether task‑relevant variables are linearly decodable. Rising accuracy over epochs indicates progressive alignment of representation with the task.
-- Attractors as computational modes: stable fixed points correspond to persistent internal states (e.g., defend, attack, neutral). Their emergence and stabilization track the formation of strategy.
+## Measurement Playbooks
 
-## Methods (Top‑Down Summary)
+Each playbook reads like a field report: first the story you are trying to confirm, then the data you need, followed by the measurements and how to read them. Every step links back to the relevant theory section for formal support.
 
-1) Gate and Timescale Trajectories
-- What: track mean/reset gate statistics and timescale summaries over training.
-- Why: indicates if the model learns to retain context and whether memory depth matches task demands.
-- Outputs: gate mean trajectories, timescale heatmaps.
-- Where: Plot Interpretation → GRU Observability.
+### 1. Gates and Timescales
 
-2) Hidden‑State Geometry
-- What: embed sampled hidden states (per epoch) with PHATE and color by board features.
-- Why: visual check that representations align with interpretable variables (threats, turn, move phase).
-- Outputs: per‑epoch embedding figures by feature.
-- Where: Plot Interpretation → GRU Observability.
+**Narrative hook**: “Did the model learn when to remember versus when to overwrite?”
 
-3) Linear Probing with Controls
-- What: logistic probes on hidden states for binary features with permuted‑label controls.
-- Why: quantifies linear accessibility and validates signal over chance.
-- Outputs: probe accuracy curves and signal‑over‑control plots.
-- Where: Plot Interpretation → GRU Observability; Plot Interpretation → GRU Mutual Information for complementary analysis.
+**Goal**: quantify memory depth and gating policy across checkpoints.
 
-4) Fixed Points and Attractor Evolution
-- What: identify fixed points for selected input contexts; classify stability via Jacobian spectrum; track over epochs.
-- Why: connects learned computation to dynamical mechanisms (stable modes, decision boundaries).
-- Outputs: counts by stability class, spectral radii over epochs, attractor positions.
-- Where: Plot Interpretation → Fixed Points; Theoretical Foundations for derivations.
+**Inputs**: checkpoint directory (`weights_epoch_*.pt`), `training_history.json`, sampled hidden states from replay.
 
-5) Mutual Information (Per‑Feature and Per‑Dimension)
-- What: quantify MI between hidden units and board features over training.
-- Why: reveals emergence of specialized neurons and timing of representation alignment.
-- Outputs: MI heatmaps, per‑dimension MI distributions.
-- Where: Plot Interpretation → GRU Mutual Information; Scientific Background → Mutual Information Theory.
+**Procedure**:
+1. Run `scripts/extract_gru_dynamics.py --analysis-dir diagnostics/...` to log gate activations, recurrent eigenvalues, and time constants per epoch.
+2. Plot mean and variance of update/reset gates across epochs; overlay validation accuracy for alignment.
+3. Inspect eigenvalue spectra; convert eigenvalues to time constants via `tau = -1 / ln |lambda|` (see §1.4 in `theoretical_foundations.md`).
 
-## What Good Looks Like (Patterns to Expect)
+**Interpretation heuristics**:
+- Healthy runs show update gates drifting from roughly 0.3 toward 0.6 while avoiding saturation.
+- Spectral radii near 1 indicate long memory; values above 1 highlight potential instability, while values far below 1 suggest memoryless behaviour.
+- Compare time-constant distributions across architectures to quantify effective capacity.
 
-- Gates: gradual increase of update gate into a mid‑high regime; reset gate stable in mid range; no pervasive saturation.
-- Timescales: increase with hidden size; moderate values often generalize better than extreme long memory.
-- Probing: early gains on immediate‑threat variables; later gains on strategic variables (e.g., three‑in‑a‑row, center control).
-- Geometry: clearer separation by task‑relevant features as training proceeds; less structure for irrelevant ones.
-- Attractors: few stable modes emerge and sharpen with training; stabilization aligns with validation improvements.
+**Cross-references**: `theoretical_foundations.md` §§1–2 for Jacobian derivations; `weight_embeddings_theory.md` for how these metrics align with trajectory plots.
 
-## Common Failure Modes and Diagnostics
+### 2. Hidden-State Geometry
 
-- Memoryless behavior: low update gate, short timescales, near‑chance probes → increase GRU size or adjust training.
-- Over‑memorization: saturated gates, extremely long timescales, declining probe accuracy late in training → regularize, consider early stopping, reduce capacity.
-- Spurious probes: high probe accuracy but high control accuracy → data leakage or imbalance; revise sampling and splits.
-- Representation collapse: decreasing representation variance with flat or worsening validation → capacity misalignment or overfitting; adjust architecture or training schedule.
+**Narrative hook**: “What shape did the representations take as the model learned strategy?”
+
+**Goal**: reveal structure in the representation manifold and how board features partition it.
+
+**Inputs**: hidden-state samples stratified by feature labels (e.g., immediate win, current player, move index).
+
+**Procedure**:
+1. Sample hidden states uniformly across games and timesteps; balance samples across feature values to avoid skew.
+2. Fit PHATE or T-PHATE embeddings per epoch with `src/visualize_trajectories.py`; keep hyperparameters consistent to facilitate comparisons.
+3. Colour embeddings by strategic features and overlay temporal trajectories to inspect flow through the manifold.
+
+**Interpretation heuristics**:
+- Distinct clusters often correspond to discrete attractors (attack, defend, neutral).
+- Smooth gradients along the manifold suggest continuous accumulators (line attractors encoding evaluation).
+- Loss of structure or collapsing embeddings signals representational failure or over-regularisation.
+
+**Cross-references**: `theoretical_foundations.md` §4 for manifold learning theory; `case_studies.md` Cases 2 and 4 for empirical examples.
+
+### 3. Probing and Mutual Information
+
+**Narrative hook**: “Which game concepts are encoded, and are they accessible to simple decoders?”
+
+**Goal**: quantify what information is encoded and whether it is linearly decodable.
+
+**Inputs**: hidden-state matrices, feature label vectors, shuffled-label controls.
+
+**Procedure**:
+1. Train logistic or linear probes with stratified splits; report both accuracy and calibration metrics. Compare against shuffled-label baselines.
+2. Run `scripts/compute_hidden_mutual_info.py` to compute aggregate and per-dimension MI; enable bootstrapping for confidence intervals.
+3. Track probe accuracy and MI across checkpoints to study the emergence of specialised neurons.
+
+**Interpretation heuristics**:
+- Tactical features (immediate wins/blocks) should become linearly decodable early; strategic variables (center control, tempo) follow later.
+- High probe accuracy with low MI implies distributed but linearly accessible codes; high MI with low probe accuracy implies nonlinear encodings.
+- If shuffled controls mirror true scores, revisit sampling or label generation.
+
+**Cross-references**: `theoretical_foundations.md` §§3 and 6 for estimator theory and learning dynamics; `case_studies.md` Case 3 for concept emergence timelines in AlphaZero.
+
+### 4. Fixed Points and Attractor Evolution
+
+**Narrative hook**: “Can we point to the latent states that embody tactics like attack or defend?”
+
+**Goal**: map the computational skeleton of the GRU by cataloguing stable modes.
+
+**Inputs**: canonical board states (attack, defence, neutral), frozen CNN feature vectors, optimisation loop for `min_h ||h - f(h)||^2`.
+
+**Procedure**:
+1. Generate and cache CNN embeddings for the chosen boards.
+2. Follow the workflow in `theoretical_foundations.md` §2.5: initialise with replayed states, solve for fixed points via L-BFGS-B, deduplicate, and classify stability using the Jacobian.
+3. Repeat across checkpoints to track movement, creation, or annihilation of attractors and saddles.
+
+**Interpretation heuristics**:
+- Expect a modest number of attractors (fewer than 20) corresponding to strategic archetypes.
+- Stable attractors sharpening over training indicate consolidation of decision modes.
+- Sudden attractor disappearance or proliferation of saddles often aligns with optimisation shocks.
+
+**Status**: CLI support is in development (`scripts/find_fixed_points.py`). Use the pseudocode in `case_studies.md` until the script lands.
+
+---
+
+## Study Design Templates
+
+These mini-guides bundle the playbooks into complete stories you can reproduce or extend.
+
+- **Health check (approx. 2 hours)**  
+  1. Compute gate/timescale statistics for best and final checkpoints.  
+  2. Run MI for core tactical features.  
+  3. Inspect a PHATE embedding for the final checkpoint.  
+  4. Summarise findings alongside validation curves.
+
+- **Learning-dynamics deep dive (1–2 days)**  
+  1. Sample checkpoints every 5 epochs.  
+  2. Run the full probe+MI suite and geometry embeddings per checkpoint.  
+  3. Track gate statistics and spectral radii jointly.  
+  4. (Optional) catalogue fixed points for three canonical boards.  
+  5. Annotate training timelines with observed regime shifts.
+
+- **Architecture comparison**  
+  1. Repeat the deep dive for two architectures (e.g., GRU32 vs GRU128).  
+  2. Use joint PHATE embeddings (`--viz-type ablation-gru`) to compare weight trajectories.  
+  3. Quantify differences in timescale distributions and neuron specialisation.  
+  4. Discuss trade-offs between capacity and interpretability.
+
+---
+
+## Failure Modes and Diagnostics
+
+Each failure mode is phrased as a narrative symptom so you can recognise it quickly when scanning plots.
+
+- **Memoryless behaviour**  
+  - Symptoms: update gates stuck near zero, spectral radius much less than one, probes/MI near chance.  
+  - Actions: increase hidden size, lengthen training sequences, adjust learning rate schedule.
+
+- **Over-memorisation**  
+  - Symptoms: update gates saturate near one, eigenvalues exceed the unit circle, validation accuracy deteriorates late.  
+  - Actions: add regularisation (dropout, weight decay), clip gradients, consider smaller recurrent width.
+
+- **Spurious probes**  
+  - Symptoms: probes succeed but shuffled-label controls also perform well, MI remains low.  
+  - Actions: rebalance data, verify labels, ensure temporal splits prevent leakage.
+
+- **Representation collapse**  
+  - Symptoms: PHATE embeddings contract to a point, hidden-state variance drops, MI declines.  
+  - Actions: revisit optimiser hyperparameters, add auxiliary losses, diversify replay sampling.
+
+- **Attractor instability** (when fixed-point tooling is active)  
+  - Symptoms: attractors relocate dramatically, saddles proliferate, basins swap.  
+  - Actions: inspect training logs for optimisation shocks, reduce learning rate during late training.
+
+---
 
 ## Recommendations
 
-- Use gate/timescale trajectories for quick health checks across architectures.
-- Validate representation claims with probes and controls; complement with MI for neuron‑level insights.
-- Apply fixed‑point analysis on a small set of canonical board contexts and track evolution every few epochs to link mechanisms with performance.
-- Prefer moderate timescales and non‑saturated gates for generalization in Connect Four; larger hidden sizes can help but may overfit without regularization.
+- Monitor gate and timescale statistics throughout training; they are the quickest signal of emergent memory structure.
+- Always pair probes with mutual information **and** shuffled controls to separate linear accessibility from encoding strength.
+- Align geometry plots with fixed-point catalogues: PHATE clusters often indicate attractor candidates worth formal verification.
+- Focus fixed-point sweeps on a curated set of board contexts and update the catalogue whenever you change architecture or training protocol.
+- In Connect Four, moderate timescales with non-saturated gates consistently correlate with better generalisation than extreme memory regimes.
 
-## Relationship to the Rest of the Documentation
+---
 
-- Practical usage and plot details: Plot Interpretation → GRU Observability, GRU Mutual Information, Fixed Points.
-- Underlying theory and derivations: Scientific Background → Theoretical Foundations, Mutual Information Theory, Weight Embeddings Theory.
-- End‑to‑end workflows: User Manual → Workflows → GRU Interpretability.
+## Relationship to Other Documentation
+
+- **Plot interpretation**: see the user manual sections on GRU observability and mutual information for figure-by-figure walkthroughs.
+- **Theory**: `theoretical_foundations.md` covers Jacobians, MI estimators, manifold learning, and learning-dynamics theory.
+- **Implementation**: `docs/reference/methods.md` documents CLI flags, data layouts, and library dependencies.
+- **Workflows**: `docs/manual/workflows/gru_interpretability.md` chains these diagnostics into an end-to-end pipeline.
+
+---
 
 ## Selected References
 
-- Sussillo, D., & Barak, O. (2013). Opening the black box: low‑dimensional dynamics in high‑dimensional recurrent neural networks. Neural Computation, 25(3):626–649.
-- Maheswaranathan, N., et al. (2019). Reverse engineering recurrent networks for sentiment classification reveals line attractor dynamics. NeurIPS.
-- Kornblith, S., et al. (2019). Similarity of neural network representations revisited. ICML.
-- Belinkov, Y. (2022). Probing classifiers: promises, shortcomings, and advances. Computational Linguistics.
+- Sussillo, D., and Barak, O. (2013). Opening the black box: low-dimensional dynamics in high-dimensional recurrent neural networks. *Neural Computation*, 25(3), 626–649.
+- Maheswaranathan, N., Williams, A. H., Golub, M. D., Ganguli, S., and Sussillo, D. (2019). Reverse engineering recurrent networks for sentiment classification reveals line attractor dynamics. *NeurIPS*.
+- Kornblith, S., Norouzi, M., Lee, H., and Hinton, G. (2019). Similarity of neural network representations revisited. *ICML*.
+- Belinkov, Y. (2022). Probing classifiers: promises, shortcomings, and advances. *Computational Linguistics*.
