@@ -538,6 +538,18 @@ def _create_comparison_animation(method: str, component: str,
 
     fig, ax = plt.subplots(figsize=(8, 6))
     cmap = plt.colormaps["tab20"].resampled(max(len(entries), 1))
+    # Fix axes limits up front so initial empty artists don't lock autoscale to (0,1)
+    all_x = np.concatenate([np.asarray(e["embedding"])[:, 0] for e in entries])
+    all_y = np.concatenate([np.asarray(e["embedding"])[:, 1] for e in entries])
+    x_min, x_max = float(np.min(all_x)), float(np.max(all_x))
+    y_min, y_max = float(np.min(all_y)), float(np.max(all_y))
+    # Add a small margin
+    x_span = x_max - x_min
+    y_span = y_max - y_min
+    x_pad = 0.05 * x_span if x_span > 0 else 1.0
+    y_pad = 0.05 * y_span if y_span > 0 else 1.0
+    ax.set_xlim(x_min - x_pad, x_max + x_pad)
+    ax.set_ylim(y_min - y_pad, y_max + y_pad)
     color_samples = cmap(np.linspace(0, 1, len(entries))) if entries else np.empty((0, 4))
 
     lines = []
@@ -548,10 +560,12 @@ def _create_comparison_animation(method: str, component: str,
     for idx, entry in enumerate(entries):
         emb = np.asarray(entry["embedding"])  # (n,2)
         color = color_samples[idx]
-        line, = ax.plot([], [], '-', color=color, linewidth=2, alpha=0.6)
-        scat = ax.scatter([], [], c=[color], s=70, edgecolors='black', linewidths=0.6)
-        start = ax.scatter([], [], c=[color], s=150, marker='o', edgecolors='black')
-        end = ax.scatter([], [], c=[color], s=170, marker='*', edgecolors='black')
+        # faint backbone to provide context and help autoscale visually
+        ax.plot(emb[:, 0], emb[:, 1], '-', color=color, linewidth=1.2, alpha=0.15, zorder=1)
+        line, = ax.plot([], [], '-', color=color, linewidth=2, alpha=0.7, zorder=3)
+        scat = ax.scatter([], [], c=[color], s=60, edgecolors='black', linewidths=0.5, zorder=4)
+        start = ax.scatter([], [], c=[color], s=140, marker='o', edgecolors='black', zorder=5)
+        end = ax.scatter([], [], c=[color], s=160, marker='*', edgecolors='black', zorder=6)
         lines.append((line, emb))
         scatters.append((scat, emb))
         start_markers.append(start)
