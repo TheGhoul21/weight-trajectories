@@ -72,6 +72,22 @@ Analysis & Plots
   trajectory-embedding       Metric-space trajectory plots (UMAP/t-SNE/PHATE)
   embeddings [args]          Weight/representation embeddings
   factorial [args]           Factorial heatmaps (3×3 sweep)
+  
+  3D & Interactive (Trajectory Embedding)
+    Use the flags below with 'trajectory-embedding' to enable richer outputs:
+      --dims 3                Compute a 3D embedding
+      --animate-3d            Save a rotating 3D GIF (camera orbit)
+      --anim-frames N         Number of frames for the rotation (default: 180)
+      --anim-seconds S        Duration in seconds for the GIF (default: 12)
+      --plotly-html PATH      Save an interactive 3D HTML (drag to orbit/zoom)
+    Example:
+      ./wt.sh trajectory-embedding \
+        --metrics-dir diagnostics/trajectory_analysis \
+        --checkpoint-dir checkpoints/save_every_1 \
+        --output-dir visualizations/save_every_1/metric_space \
+        --method phate --n-neighbors 10 \
+        --dims 3 --animate-3d --anim-frames 180 --anim-seconds 12 \
+        --plotly-html visualizations/save_every_1/metric_space/trajectory_embedding_3d.html
 
 GRU Observability
   observability extract      Collect gates, timescales, hidden samples
@@ -94,6 +110,7 @@ Tips
   - Temporal viz: '--viz-type temporal --temporal-mode training|game'
   - Set PYTHON_BIN to override the interpreter used by all commands
   - See docs: manual/commands for details and examples
+  - Caching: many analysis commands reuse cached CSVs; pass '--force' to recompute (some also support '--skip-plots')
 EOF
 }
 
@@ -277,6 +294,24 @@ main() {
   case "${command}" in
     help|-h|--help)
       show_help
+      ;;
+    # Quick aliases for common 3D trajectory embedding flows
+    trajectory-embedding-3d)
+      # Convenience: always compute 3D + rotating GIF; forward remaining args
+      cmd_trajectory_embedding --dims 3 --animate-3d "$@"
+      ;;
+    trajectory-embedding-interactive)
+      # Convenience: compute 3D and write interactive HTML at the default location unless overridden
+      local out_dir="visualizations/metric_space"
+      for i in "$@"; do
+        if [[ "$i" == "--output-dir" ]]; then
+          # next token is output dir
+          shift
+          out_dir="$1"
+          break
+        fi
+      done
+      cmd_trajectory_embedding --dims 3 --plotly-html "${out_dir}/trajectory_embedding_3d.html" "$@"
       ;;
     python-path)
       echo "${PYTHON_EXEC}"

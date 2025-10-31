@@ -1,0 +1,155 @@
+{
+    "report_path": "visualizations/visualization_report.md",
+    "experiments": [
+        {
+            "name": "gru_hidden_k3_c16",
+            "description": "GRU weight trajectories for k=3, c=16 while varying hidden size.",
+            "args": [
+                "--viz-type",
+                "ablation-gru",
+                "--ablation-dirs",
+                "checkpoints/save_every_1/k3_c16_gru8",
+                "checkpoints/save_every_1/k3_c16_gru32",
+                "checkpoints/save_every_1/k3_c16_gru128",
+                "--output-dir",
+                "visualizations/ablation_gru_k3_c16",
+                "--ablation-animate",
+                "--phate-n-pca",
+                "24",
+                "--phate-knn",
+                "5",
+                "--phate-t",
+                "10"
+            ],
+            "images": [
+                "visualizations/ablation_gru_k3_c16/ablation_gru_trajectories.png",
+                "visualizations/ablation_gru_k3_c16/ablation_gru_trajectories.gif"
+            ]
+        },
+        {
+            "name": "gru_hidden_k3_c64",
+            "description": "GRU weight trajectories for k=3, c=64 while varying hidden size.",
+            "args": [
+                "--viz-type",
+                "ablation-gru",
+                "--ablation-dirs",
+                "checkpoints/save_every_1/k3_c64_gru8",
+                "checkpoints/save_every_1/k3_c64_gru32",
+                "checkpoints/save_every_1/k3_c64_gru128",
+                "--output-dir",
+                "visualizations/ablation_gru_k3_c64",
+                "--ablation-animate",
+                "--phate-n-pca",
+                "24",
+                "--phate-knn",
+                "5",
+                "--phate-t",
+                "10"
+            ],
+            "images": [
+                "visualizations/ablation_gru_k3_c64/ablation_gru_trajectories.png",
+                "visualizations/ablation_gru_k3_c64/ablation_gru_trajectories.gif"
+            ]
+        },
+        {
+            "name": "gru_hidden_k3_c256",
+            "description": "GRU weight trajectories for k=3, c=256 while varying hidden size.",
+            "args": [
+                "--viz-type",
+                "ablation-gru",
+                "--ablation-dirs",
+                "checkpoints/save_every_1/k3_c256_gru8",
+                "checkpoints/save_every_1/k3_c256_gru32",
+                "checkpoints/save_every_1/k3_c256_gru128",
+                "--output-dir",
+                "visualizations/ablation_gru_k3_c256",
+                "--ablation-animate",
+                "--phate-n-pca",
+                "24",
+                "--phate-knn",
+                "5",
+                "--phate-t",
+                "10"
+            ],
+            "images": [
+                "visualizations/ablation_gru_k3_c256/ablation_gru_trajectories.png",
+                "visualizations/ablation_gru_k3_c256/ablation_gru_trajectories.gif"
+            ]
+        },
+        {
+            "name": "cnn_k3_gru8",
+            "description": "CNN-GRU weight trajectories for k=3, gru_hidden=8 while varying cnn_channels.",
+            "args": [
+                "--viz-type",
+                "ablation-cnn",
+                "--ablation-dirs",
+                "checkpoints/save_every_1/k3_c16_gru8",
+                "checkpoints/save_every_1/k3_c64_gru8",
+                "checkpoints/save_every_1/k3_c256_gru8",
+                "--output-dir",
+                "visualizations/ablation_cnn_k3_gru8",
+                "--ablation-animate",
+                "--phate-n-pca",
+                "24",
+                "--phate-knn",
+                "5",
+                "--phate-t",
+                "10"
+            ],
+            "images": [
+                "visualizations/ablation_cnn_k3_gru8/ablation_cnn_trajectories.png",
+                "visualizations/ablation_cnn_k3_gru8/ablation_cnn_trajectories.gif"
+            ]
+        },
+        {
+            "name": "cnn_k3_gru32",
+            "description": "CNN-GRU weight trajectories for k=3, gru_hidden=32 while varying cnn_channels.",
+            "args": [
+                "--viz-type",
+                "ablation-cnn",
+                "--ablation-dirs",
+                "checkpoints/save_every_1/k3_c16_gru32",
+                "checkpoints/save_every_1/k3_c64_gru32",
+                "checkpoints/save_every_1/k3_c256_gru32",
+                "--output-dir",
+                "visualizations/ablation_cnn_k3_gru32",
+                "--ablation-animate",
+                "--phate-n-pca",
+                "24",
+                "--phate-knn",
+                "5",
+                "--phate-t",
+                "10"
+            ],
+            "images": [
+                "visualizations/ablation_cnn_k3_gru32/ablation_cnn_trajectories.png",
+                "visualizations/ablation_cnn_k3_gru32/ablation_cnn_trajectories.gif"
+            ]
+        },
+        {
+            "name": "cnn_k3_gru128",
+            "description": "CNN-GRU weight trajectories for k=3, gru_hidden=128 while varying cnn_channels.",
+            "args": [
+                "--viz-type",
+                "ablation-cnn",
+                "--ablation-dirs",
+                "checkpoints/save_every_1/k3_c16_gru128",
+                "checkpoints/save_every_1/k3_c64_gru128",
+                "checkpoints/save_every_1/k3_c256_gru128",
+                "--output-dir",
+                "visualizations/ablation_cnn_k3_gru128",
+                "--ablation-animate",
+                "--phate-n-pca",
+                "24",
+                "--phate-knn",
+                "5",
+                "--phate-t",
+                "10"
+            ],
+            "images": [
+                "visualizations/ablation_cnn_k3_gru128/ablation_cnn_trajectories.png",
+                "visualizations/ablation_cnn_k3_gru128/ablation_cnn_trajectories.gif"
+            ]
+        }
+    ]
+}
