@@ -36,6 +36,7 @@ analyze (plots + linear probes)
   - --embedding-epochs [list, default 1 3 5 … 99]
   - --embedding-feature [default move_index]
   - --embedding-animate [flag] render an animated 3×3 grid over epochs (saved as mp4 or gif)
+    - Tip: combine `--skip-embedding` with `--embedding-animate` to generate only the animation (no PNGs).
   - --embedding-mode [{separate, joint}, default separate]
       • separate: fit PHATE independently per epoch (fast; orientation stabilized via feature-correlated axis/sign)
       • joint: pool a capped number of samples per epoch and fit PHATE once per model for stable axes across epochs
@@ -102,6 +103,22 @@ Animation format and ffmpeg
   - `uv pip install imageio-ffmpeg`
   The script will auto-detect it and configure Matplotlib accordingly.
 - You can also force a format via `--embedding-format mp4` or `--embedding-format gif`.
+
+Only the animation (no PNGs)
+
+```zsh
+./wt.sh observability analyze \
+  --embedding-animate \
+  --skip-embedding \
+  --embedding-feature move_index \
+  --embedding-mode separate
+```
+
+If you prefer MP4 and have ffmpeg installed, add:
+
+```zsh
+  --embedding-format mp4
+```
 
 Troubleshooting animation vs PNG differences
 - Static PNGs (phate_epoch_XXX_*.png) are generated with separate per‑epoch PHATE fits. The animation can run in two modes:
