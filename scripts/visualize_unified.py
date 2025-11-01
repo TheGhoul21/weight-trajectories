@@ -204,6 +204,24 @@ def plot_representation_grid(metrics_data, output_dir):
                         line, = ax.plot(valid['epoch'], valid[col],
                                         label=f'SV{sv_idx}', marker='o', markersize=2, linewidth=1.5)
 
+                total_var_line = None
+                if 'repr_total_variance' in df.columns:
+                    valid_tv = df[df['repr_total_variance'].notna()]
+                    if not valid_tv.empty:
+                        ax_tv = ax.twinx()
+                        total_var_line, = ax_tv.plot(
+                            valid_tv['epoch'],
+                            valid_tv['repr_total_variance'],
+                            color='tab:red',
+                            marker='s',
+                            markersize=2,
+                            linewidth=1.4,
+                            label='Total variance',
+                        )
+                        ax_tv.set_ylabel('Total Variance', fontsize=8, color='tab:red')
+                        ax_tv.tick_params(axis='y', labelcolor='tab:red')
+                        ax_tv.grid(False)
+
                 mean_top1 = df['repr_top1_ratio'].mean() if 'repr_top1_ratio' in df.columns else np.nan
                 mean_total_var = df['repr_total_variance'].mean() if 'repr_total_variance' in df.columns else np.nan
                 if np.isnan(mean_total_var):
@@ -215,6 +233,10 @@ def plot_representation_grid(metrics_data, output_dir):
                 # Defer legends to a single shared figure-level legend
                 if shared_legend_handles is None or shared_legend_labels is None:
                     handles, labels = ax.get_legend_handles_labels()
+                    if total_var_line is not None:
+                        tv_handles, tv_labels = ax_tv.get_legend_handles_labels()
+                        handles += tv_handles
+                        labels += tv_labels
                     shared_legend_handles, shared_legend_labels = handles, labels
             else:
                 ax.text(0.5, 0.5, 'No Data', ha='center', va='center', transform=ax.transAxes)

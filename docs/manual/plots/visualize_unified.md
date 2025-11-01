@@ -12,7 +12,7 @@ Key figures (by viz-type)
 - cnn_trajectory.png: PHATE embedding of CNN weight snapshots; points colored by epoch with start/end markers and min/final val-loss markers if history is present
 - gru_trajectory.png: PHATE embedding of GRU weight snapshots; same annotations
 - board_representations.png: PHATE embedding of GRU hidden vectors for random boards at latest checkpoint; color encodes board/sample index
-- representation_grid.png: Per-model line plots of singular-value ratios across epochs; titles now annotate both mean Top-1 ratio and mean total variance (matching `Mean Total Variance` in the factorial heatmap)
+- representation_grid.png: Per-model line plots of singular-value ratios across epochs (left axis) with a secondary line showing total variance (right axis); titles annotate both mean Top-1 ratio and mean total variance (matching the factorial heatmap aggregation)
 - summary.png: 2×2 panel with CNN and GRU trajectories plus loss curves (train/val and value/policy)
 - cnn_gru_joint.png (joint): Shared PHATE embedding overlaying CNN and GRU trajectories for the same run; min/final loss markers drawn as filled (CNN) vs outline (GRU)
 - temporal_training.png / temporal_game.png (temporal): Hidden-state T-PHATE embeddings across two time axes:
