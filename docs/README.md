@@ -38,22 +38,28 @@ Architecture and shared methods
 
 ```
 weight-trajectories/
-├── dataset/
-│   └── Alpha-Zero-algorithm-for-Connect-4-game/  # External AlphaZero repo
-├── data/                                          # Generated datasets
-│   ├── connect4_10k_games.pt                     # Full dataset
-│   └── samples/                                  # Test datasets
-├── src/                                           # Source code
-│   ├── model.py                                   # ResNet+GRU architecture
-│   └── train.py                                   # Training script
-├── scripts/                                       # Utility scripts
-│   ├── generate_connect4_dataset.py              # Dataset generation
-│   └── train_all_models.sh                       # Train all configs
-├── configs/                                       # Training configurations
-│   └── train_configs.yaml
-├── checkpoints/                                   # Saved models & weights
-├── models/                                        # Final trained models
-└── README.md
+├── wt.sh                     # Unified CLI for training, analysis, and plotting
+├── pyproject.toml            # Project dependencies and tooling configuration
+├── src/                      # Core library: model, training loop, helpers
+│   ├── model.py
+│   ├── train.py
+│   └── utils/
+├── scripts/                  # Batch utilities for data generation and studies
+│   ├── generate_connect4_dataset.py
+│   ├── extract_gru_dynamics.py
+│   ├── train_all_18_ablations.sh
+│   └── run_visualization_suite.py
+├── configs/                  # YAML/JSON configs for training and visualization
+├── data/                     # Generated Connect Four datasets (`.pt` + metadata)
+├── checkpoints/              # Saved model checkpoints and training logs
+├── diagnostics/              # Derived metrics (MI sweeps, fixed points, etc.)
+├── visualizations/           # Rendered plots and embedding exports
+├── ablation_study/           # Ablation outputs and experiment manifests
+├── dataset/                  # External AlphaZero Connect Four reference repository
+├── docs/                     # User manual, scientific handbook, and references
+├── README.md                 # Project overview (root)
+├── USAGE.md                  # CLI quick reference
+└── report.tex                # Research report manuscript
 ```
 
 ## Quick Start
