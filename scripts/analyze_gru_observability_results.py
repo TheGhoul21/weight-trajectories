@@ -44,6 +44,15 @@ try:
 except ImportError:
     HAS_PHATE = False
 
+# If available, use imageio-ffmpeg to provide a bundled ffmpeg binary for Matplotlib
+try:
+    import imageio_ffmpeg  # type: ignore
+    _FFMPEG_EXE = imageio_ffmpeg.get_ffmpeg_exe()
+    if _FFMPEG_EXE and os.path.exists(_FFMPEG_EXE):
+        matplotlib.rcParams["animation.ffmpeg_path"] = _FFMPEG_EXE
+except Exception:
+    _FFMPEG_EXE = None
+
 
 PROBE_FEATURES: Dict[str, Dict[str, object]] = {
     "current_player": {"type": "binary", "transform": lambda arr: (arr - 1).astype(int)},
@@ -154,6 +163,24 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=150,
         help="DPI for saved animation frames.",
+    )
+    parser.add_argument(
+        "--embedding-point-size",
+        type=float,
+        default=12.0,
+        help="Marker size for PHATE scatter points (points^2).",
+    )
+    parser.add_argument(
+        "--embedding-alpha",
+        type=float,
+        default=0.8,
+        help="Alpha (transparency) for PHATE scatter points.",
+    )
+    parser.add_argument(
+        "--embedding-dedup",
+        choices=["auto", "off"],
+        default="auto",
+        help="Whether to deduplicate identical hidden states before PHATE (auto recommended to avoid zero-distance issues).",
     )
     parser.add_argument(
         "--skip-probing",
@@ -387,7 +414,7 @@ def load_hidden_samples(
 
 
 def clean_hidden_features(
-    hidden: np.ndarray, features: np.ndarray
+    hidden: np.ndarray, features: np.ndarray, *, dedup: bool = True
 ) -> Tuple[np.ndarray, np.ndarray]:
     if hidden.size == 0:
         return hidden, features
@@ -403,27 +430,28 @@ def clean_hidden_features(
         return hidden, features
 
     # Deduplicate exact duplicate hidden states to avoid zero-distance issues in PHATE
-    try:
-        _, unique_indices = np.unique(hidden, axis=0, return_index=True)
-        if unique_indices.size < hidden.shape[0]:
-            unique_indices = np.sort(unique_indices)
-            hidden = hidden[unique_indices]
-            features = features[unique_indices]
-    except TypeError:
-        # Fallback if axis kw not supported (older numpy)
-        seen = {}
-        kept_hidden = []
-        kept_features = []
-        for vec, feat in zip(hidden, features):
-            key = tuple(vec.tolist())
-            if key in seen:
-                continue
-            seen[key] = True
-            kept_hidden.append(vec)
-            kept_features.append(feat)
-        if kept_hidden:
-            hidden = np.stack(kept_hidden, axis=0)
-            features = np.stack(kept_features, axis=0)
+    if dedup:
+        try:
+            _, unique_indices = np.unique(hidden, axis=0, return_index=True)
+            if unique_indices.size < hidden.shape[0]:
+                unique_indices = np.sort(unique_indices)
+                hidden = hidden[unique_indices]
+                features = features[unique_indices]
+        except TypeError:
+            # Fallback if axis kw not supported (older numpy)
+            seen = {}
+            kept_hidden = []
+            kept_features = []
+            for vec, feat in zip(hidden, features):
+                key = tuple(vec.tolist())
+                if key in seen:
+                    continue
+                seen[key] = True
+                kept_hidden.append(vec)
+                kept_features.append(feat)
+            if kept_hidden:
+                hidden = np.stack(kept_hidden, axis=0)
+                features = np.stack(kept_features, axis=0)
 
     return hidden, features
 
@@ -450,19 +478,27 @@ def plot_phate_embeddings(
     feature_name: str,
     max_samples: int,
     rng: np.random.Generator,
+    *,
+    point_size: float = 12.0,
+    alpha: float = 0.8,
+    dedup: bool = True,
 ) -> None:
     if not HAS_PHATE:
         print("PHATE not installed; skipping embedding plot.")
         return
 
-    models = _sort_models_grid([p for p in analysis_dir.iterdir() if p.is_dir()])
+    models = _sort_models_grid([p for p in analysis_dir.iterdir() if p.is_dir()])[:9]
     for epoch in epochs:
         print(f"[Embed] PHATE embeddings for epoch {epoch} (feature='{feature_name}')", flush=True)
         fig, axes = plt.subplots(3, 3, figsize=(15, 14))
         # Leave room at right for a vertical colorbar
-        fig.subplots_adjust(right=0.9)
+        fig.subplots_adjust(right=0.88)
         for ax in axes.flat:
-            ax.axis("off")
+            # Keep axes on, but hide ticks and spines for consistent text rendering
+            ax.set_xticks([])
+            ax.set_yticks([])
+            for spine in ax.spines.values():
+                spine.set_visible(False)
 
         for idx, model_dir in enumerate(models):
             row, col = divmod(idx, 3)
@@ -482,7 +518,7 @@ def plot_phate_embeddings(
                 ax.text(0.5, 0.5, "No samples", ha="center", va="center")
                 continue
 
-            hidden, features = clean_hidden_features(hidden, features)
+            hidden, features = clean_hidden_features(hidden, features, dedup=dedup)
 
             if hidden.shape[0] < 3:
                 ax.set_title(model_dir.name)
@@ -509,21 +545,22 @@ def plot_phate_embeddings(
                 embedding[:, 1],
                 c=colour,
                 cmap="viridis",
-                s=12,
-                alpha=0.8,
+                s=float(point_size),
+                alpha=float(alpha),
             )
             ax.set_title(model_dir.name, fontsize=9)
             ax.set_xticks([])
             ax.set_yticks([])
 
         fig.suptitle(f"PHATE Embedding at Epoch {epoch} (colour: {feature_name})", fontsize=14)
+        # Layout first, reserving space on the right for the colorbar
+        fig.tight_layout(rect=[0.0, 0.0, 0.88, 0.95])
         # Dedicated colorbar axis to avoid overlapping last column
-        cbar_ax = fig.add_axes([0.92, 0.15, 0.018, 0.7])
+        cbar_ax = fig.add_axes([0.90, 0.15, 0.018, 0.7])
         cbar = fig.colorbar(scatter, cax=cbar_ax)
         cbar.set_label(feature_name)
         output_path = output_dir / f"phate_epoch_{epoch:03d}_{feature_name}.png"
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.tight_layout(rect=[0, 0, 1, 0.97])
         fig.savefig(output_path, dpi=300)
         plt.close(fig)
         print(f"[Embed] Saved {output_path}", flush=True)
@@ -539,6 +576,10 @@ def animate_phate_embeddings(
     fps: int = 4,
     fmt: str = "auto",
     dpi: int = 150,
+    *,
+    point_size: float = 12.0,
+    alpha: float = 0.8,
+    dedup: bool = True,
 ) -> None:
     """Generate a 3x3 grid animation of PHATE embeddings over epochs.
 
@@ -606,7 +647,7 @@ def animate_phate_embeddings(
                     continue
                 if hidden.shape[0] == 0:
                     continue
-                hidden, features = clean_hidden_features(hidden, features)
+                hidden, features = clean_hidden_features(hidden, features, dedup=dedup)
                 if hidden.shape[0] < 3:
                     continue
                 if first_feat_names is None:
@@ -675,7 +716,7 @@ def animate_phate_embeddings(
                 if hidden.shape[0] == 0:
                     cache[key] = (None, None)
                     continue
-                hidden, features = clean_hidden_features(hidden, features)
+                hidden, features = clean_hidden_features(hidden, features, dedup=dedup)
                 if hidden.shape[0] < 3:
                     cache[key] = (None, None)
                     continue
@@ -754,7 +795,7 @@ def animate_phate_embeddings(
             txt = "Missing" if (first_epoch, model_dir.name) not in cache else "No samples"
             ax.text(0.5, 0.5, txt, ha="center", va="center")
             continue
-        sc = ax.scatter(emb[:, 0], emb[:, 1], c=colour, cmap="viridis", s=12, alpha=0.8, norm=norm)
+        sc = ax.scatter(emb[:, 0], emb[:, 1], c=colour, cmap="viridis", s=float(point_size), alpha=float(alpha), norm=norm)
         ax.set_xlim(xmin[model_dir.name], xmax[model_dir.name])
         ax.set_ylim(ymin[model_dir.name], ymax[model_dir.name])
         scatters[model_dir.name] = sc
@@ -784,7 +825,7 @@ def animate_phate_embeddings(
                 ax.set_title(model_dir.name, fontsize=9)
                 ax.text(0.5, 0.5, "Missing", ha="center", va="center")
                 # Recreate empty scatter to retain colorbar binding
-                sc = ax.scatter([], [], c=[], cmap="viridis", s=12, alpha=0.8, norm=norm)
+                sc = ax.scatter([], [], c=[], cmap="viridis", s=float(point_size), alpha=float(alpha), norm=norm)
                 scatters[model_dir.name] = sc
                 ax.set_xlim(xmin[model_dir.name], xmax[model_dir.name])
                 ax.set_ylim(ymin[model_dir.name], ymax[model_dir.name])
@@ -802,25 +843,43 @@ def animate_phate_embeddings(
     output_path = None
     writer = None
     fmt_choice = fmt
+    # Prefer mp4 if ffmpeg is available, otherwise fall back to gif
+    try:
+        import shutil
+        has_ffmpeg = (shutil.which("ffmpeg") is not None) or bool(matplotlib.rcParams.get("animation.ffmpeg_path"))
+    except Exception:
+        has_ffmpeg = bool(matplotlib.rcParams.get("animation.ffmpeg_path"))
+
     if fmt_choice == "auto":
-        # Prefer mp4 if ffmpeg is available
-        try:
-            writer = animation.FFMpegWriter(fps=fps, bitrate=1800)
-            output_path = out_base.with_suffix(".mp4")
-            fmt_choice = "mp4"
-        except Exception:
-            pass
+        if has_ffmpeg:
+            try:
+                writer = animation.FFMpegWriter(fps=fps, bitrate=1800)
+                output_path = out_base.with_suffix(".mp4")
+                fmt_choice = "mp4"
+            except Exception:
+                writer = None
+                output_path = None
+                fmt_choice = "auto"
+        else:
+            # No ffmpeg available; prefer gif
+            fmt_choice = "gif"
     if writer is None and (fmt_choice == "gif" or fmt_choice == "auto"):
         try:
             writer = animation.PillowWriter(fps=fps)
             output_path = out_base.with_suffix(".gif")
             fmt_choice = "gif"
         except Exception:
-            pass
+            writer = None
+            output_path = None
+            fmt_choice = "auto"
     if writer is None and fmt_choice == "mp4":
-        # Last attempt for mp4
-        writer = animation.FFMpegWriter(fps=fps, bitrate=1800)
-        output_path = out_base.with_suffix(".mp4")
+        # Last attempt for mp4 (only if ffmpeg present)
+        try:
+            writer = animation.FFMpegWriter(fps=fps, bitrate=1800)
+            output_path = out_base.with_suffix(".mp4")
+        except Exception:
+            writer = None
+            output_path = None
 
     if writer is None or output_path is None:
         print("[Embed] Could not create animation writer; skipping animation.")
@@ -829,9 +888,30 @@ def animate_phate_embeddings(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     print(f"[Embed] Saving animation to {output_path} ({fmt_choice}, {fps} fps)…", flush=True)
-    anim.save(str(output_path), writer=writer, dpi=dpi)
+    try:
+        anim.save(str(output_path), writer=writer, dpi=dpi)
+    except FileNotFoundError as exc:
+        # Likely ffmpeg not available even though we attempted mp4; try GIF fallback
+        print(f"[Embed] Animation writer failed: {exc}")
+        try:
+            print("[Embed] Retrying with GIF (PillowWriter)...", flush=True)
+            writer_gif = animation.PillowWriter(fps=fps)
+            output_path_gif = out_base.with_suffix(".gif")
+            anim.save(str(output_path_gif), writer=writer_gif, dpi=dpi)
+            output_path = output_path_gif
+            fmt_choice = "gif"
+            print(f"[Embed] Saved animation (gif): {output_path}", flush=True)
+        except Exception as exc2:
+            print(f"[Embed] Failed to save animation with fallback writer: {exc2}", flush=True)
+            print("[Embed] To enable mp4 output, install ffmpeg (e.g., 'sudo apt install ffmpeg' or 'conda install -c conda-forge ffmpeg').", flush=True)
+            plt.close(fig)
+            return
+    except Exception as exc:
+        print(f"[Embed] Unexpected error while saving animation: {exc}", flush=True)
+        plt.close(fig)
+        return
     plt.close(fig)
-    print(f"[Embed] Saved animation: {output_path}", flush=True)
+    print(f"[Embed] Saved animation: {output_path} ({fmt_choice})", flush=True)
 
 
 def prepare_targets(values: np.ndarray, feature_name: str) -> np.ndarray | None:
@@ -1729,6 +1809,9 @@ def main() -> None:
     print(f"  embedding-fps     = {args.embedding_fps}")
     print(f"  embedding-format  = {args.embedding_format}")
     print(f"  embedding-dpi     = {args.embedding_dpi}")
+    print(f"  embedding-ptsize  = {args.embedding_point_size}")
+    print(f"  embedding-alpha   = {args.embedding_alpha}")
+    print(f"  embedding-dedup   = {args.embedding_dedup}")
     print(f"  skip-probing      = {args.skip_probing}")
     print(f"  progress-interval = {args.progress_interval}")
     print(f"  workers           = {args.workers}")
@@ -1747,6 +1830,9 @@ def main() -> None:
             feature_name=args.embedding_feature,
             max_samples=args.max_hidden_samples,
             rng=rng,
+            point_size=args.embedding_point_size,
+            alpha=args.embedding_alpha,
+            dedup=(args.embedding_dedup != "off"),
         )
         if args.embedding_animate:
             # Pass mode and joint-sample cap to the animation function via attributes
@@ -1762,6 +1848,9 @@ def main() -> None:
                 fps=args.embedding_fps,
                 fmt=args.embedding_format,
                 dpi=args.embedding_dpi,
+                point_size=args.embedding_point_size,
+                alpha=args.embedding_alpha,
+                dedup=(args.embedding_dedup != "off"),
             )
     if not args.skip_probing:
         run_probes(

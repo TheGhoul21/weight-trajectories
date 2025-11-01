@@ -43,6 +43,9 @@ analyze (plots + linear probes)
   - --embedding-fps [int, default 4] animation framerate
   - --embedding-format [{auto, mp4, gif}, default auto]
   - --embedding-dpi [int, default 150] animation DPI
+  - --embedding-point-size [float, default 12.0] marker size for PHATE scatter points
+  - --embedding-alpha [float, default 0.8] transparency for PHATE points
+  - --embedding-dedup [{auto, off}, default auto] deduplicate identical hidden states before PHATE to avoid zero-distance artifacts (turn off to visualize all samples; may be numerically fragile)
   - --probe-epochs [list, default 30 60 100]
   - --probe-features [list, default current_player immediate_win_current immediate_win_opponent]
   - --probe-components [list, default gru] (`gru`, `cnn`, or both)
@@ -87,6 +90,13 @@ Caching and force
 - Use `--force` to ignore the cache and recompute MI for all requested models/epochs.
 
 Notes on epoch selection
+Animation format and ffmpeg
+- By default, the analyzer prefers MP4 when ffmpeg is available; otherwise it automatically falls back to GIF (PillowWriter).
+- If you use uv/pip and want MP4 without a system ffmpeg install, you can add a bundled binary via:
+  - `uv pip install imageio-ffmpeg`
+  The script will auto-detect it and configure Matplotlib accordingly.
+- You can also force a format via `--embedding-format mp4` or `--embedding-format gif`.
+
 - Best epoch is derived from `checkpoints/<model>/training_history.json` using `epochs_saved` to index into `val_loss` and select the minimum; final epoch is the maximum saved epoch.
 
 fixed (find fixed points / stability per epoch)

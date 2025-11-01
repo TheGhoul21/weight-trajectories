@@ -57,6 +57,23 @@ Best vs final epoch handling
 - **timescale_heatmap.png** – heatmap of the median GRU integration timescale at the final epoch, indexed by channels (rows) and GRU size (columns).
 - **phate_epoch_XXX_<feature>.png** – 3×3 grid (one panel per model) of PHATE embeddings of hidden samples at epoch `XXX`; colour encodes the requested board feature (e.g. `move_index`).
    - When `--embedding-animate` is set, also writes **phate_animation_<feature>.mp4** (or .gif). Colorbar is placed to the right to avoid overlap with the last column.
+### PHATE rendering controls and sparse panels
+
+It’s common for very early epochs to show few points in some panels. This is expected: many hidden states can be identical when the GRU is still untrained. The analyzer deduplicates identical rows by default (`--embedding-dedup auto`) to avoid numerical issues in PHATE with zero distances, which can make early panels appear sparse. If you specifically want to visualize all samples (including duplicates), run with `--embedding-dedup off`.
+
+You can adjust scatter appearance:
+- `--embedding-point-size 24` (larger markers; default 12)
+- `--embedding-alpha 0.9` (more opaque; default 0.8)
+
+Axes stability across epochs:
+- `--embedding-mode joint` pools a capped number of samples per epoch and fits a single PHATE per model; this ensures consistent axes/signs across the animation.
+- `--embedding-mode separate` fits per-epoch; the script stabilizes orientation by correlating one PHATE axis with the colouring feature and fixing sign accordingly, but residual flips are still theoretically possible when the feature is weakly correlated.
+
+Animation format:
+- The tool prefers MP4 if ffmpeg is available; otherwise it falls back to GIF automatically.
+- If you use uv (pip), installing a bundled ffmpeg is easy: `uv pip install imageio-ffmpeg`. The script auto-detects it.
+- Force a specific format with `--embedding-format mp4|gif`.
+
 - **probe_accuracy.png** – facet-by-feature plot; each subplot shows accuracy over epochs for all models (one line per model) with a shared legend on top. Much more readable than a single crowded panel.
 - **probe_signal_over_control.png** – difference between real and control task accuracy; positive values indicate genuine signal above chance.
 - **probe_comparison.png** – side-by-side comparison of real probe accuracy (left) vs control task accuracy with permuted labels (right).
