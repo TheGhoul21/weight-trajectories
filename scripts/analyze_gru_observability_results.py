@@ -139,7 +139,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--skip-embedding",
         action="store_true",
-        help="Skip PHATE embedding visualisations.",
+        help="Skip static PHATE PNG plots (animation can still be produced with --embedding-animate).",
     )
     parser.add_argument(
         "--embedding-animate",
@@ -2024,27 +2024,28 @@ def main() -> None:
             dedup_min_count=args.embedding_dedup_min_count,
             jitter=args.embedding_jitter,
         )
-        if args.embedding_animate:
-            # Pass mode and joint-sample cap to the animation function via attributes
-            setattr(animate_phate_embeddings, "_mode", args.embedding_mode)
-            setattr(animate_phate_embeddings, "_joint_samples", args.embedding_joint_samples)
-            animate_phate_embeddings(
-                analysis_dir,
-                output_dir,
-                epochs=args.embedding_epochs,
-                feature_name=args.embedding_feature,
-                max_samples=args.max_hidden_samples,
-                rng=rng,
-                fps=args.embedding_fps,
-                fmt=args.embedding_format,
-                dpi=args.embedding_dpi,
-                point_size=args.embedding_point_size,
-                alpha=args.embedding_alpha,
-                dedup=(args.embedding_dedup if args.embedding_dedup in ("auto", "soft") else False),
-                dedup_min_fraction=args.embedding_dedup_min_fraction,
-                dedup_min_count=args.embedding_dedup_min_count,
-                jitter=args.embedding_jitter,
-            )
+
+    if args.embedding_animate:
+        # Pass mode and joint-sample cap to the animation function via attributes
+        setattr(animate_phate_embeddings, "_mode", args.embedding_mode)
+        setattr(animate_phate_embeddings, "_joint_samples", args.embedding_joint_samples)
+        animate_phate_embeddings(
+            analysis_dir,
+            output_dir,
+            epochs=args.embedding_epochs,
+            feature_name=args.embedding_feature,
+            max_samples=args.max_hidden_samples,
+            rng=rng,
+            fps=args.embedding_fps,
+            fmt=args.embedding_format,
+            dpi=args.embedding_dpi,
+            point_size=args.embedding_point_size,
+            alpha=args.embedding_alpha,
+            dedup=(args.embedding_dedup if args.embedding_dedup in ("auto", "soft") else False),
+            dedup_min_fraction=args.embedding_dedup_min_fraction,
+            dedup_min_count=args.embedding_dedup_min_count,
+            jitter=args.embedding_jitter,
+        )
     if not args.skip_probing:
         run_probes(
             analysis_dir,
