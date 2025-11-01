@@ -10,6 +10,7 @@ data/*.pt
 data/*.npz
 data/*.json
 checkpoints/
+checkpoints*/
 models/*.pt
 artifacts/
 ablation_study/outputs/

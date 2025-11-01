@@ -17,7 +17,7 @@ set -euo pipefail
 BASE="checkpoints/save_every_1"
 OUT="visualizations/save_every_1"
 SEQ_DATA="${SEQ_DATA:-data/connect4_sequential_10k_games.pt}"
-PHASES="suite,ablation,observability,fixed,cka,metrics,trajectory"
+PHASES="suite,observability,fixed,cka,metrics,trajectory"
 FORCE=0
 ABLA_EPOCH_STEP="${ABLA_EPOCH_STEP:-2}"
 
@@ -136,7 +136,7 @@ run_metrics() {
   if [[ -f "$SEQ_DATA" ]]; then
     ./wt.sh metrics --checkpoint-dirs "$BASE"/*/ --component all \
       --board-source dataset --board-dataset "$SEQ_DATA" \
-      --output-dir "$metrics_dir"
+      --output-dir "$metrics_dir" --force
   else
     ./wt.sh metrics --checkpoint-dirs "$BASE"/*/ --component all \
       --output-dir "$metrics_dir"

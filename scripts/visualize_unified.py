@@ -212,14 +212,14 @@ def plot_representation_grid(metrics_data, output_dir):
                         total_var_line, = ax_tv.plot(
                             valid_tv['epoch'],
                             valid_tv['repr_total_variance'],
-                            color='tab:red',
+                            color='tab:gray',
                             marker='s',
                             markersize=2,
                             linewidth=1.4,
                             label='Total variance',
                         )
-                        ax_tv.set_ylabel('Total Variance', fontsize=8, color='tab:red')
-                        ax_tv.tick_params(axis='y', labelcolor='tab:red')
+                        ax_tv.set_ylabel('Total Variance', fontsize=8, color='tab:gray')
+                        ax_tv.tick_params(axis='y', labelcolor='tab:gray')
                         ax_tv.grid(False)
 
                 mean_top1 = df['repr_top1_ratio'].mean() if 'repr_top1_ratio' in df.columns else np.nan

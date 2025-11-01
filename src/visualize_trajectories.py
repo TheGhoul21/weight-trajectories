@@ -250,7 +250,7 @@ class TrajectoryVisualizer:
             mem_limit_mb = 700.0
         est_mb = (n_items * max(1, int(feature_dim)) * 4) / (1024 * 1024)
         if est_mb <= mem_limit_mb:
-        return max(1, int(base_stride or 1)), est_mb
+            return max(1, int(base_stride or 1)), est_mb
         factor = int(np.ceil(est_mb / max(mem_limit_mb, 1e-6)))
         return max(1, int(base_stride or 1) * factor), est_mb
 
@@ -323,7 +323,7 @@ class TrajectoryVisualizer:
             all_weights.append(np.concatenate(cnn_weights))
             # proactively release tensors
             del state_dict, sd_checkpoint
-    return np.array(all_weights, dtype=np.float32)
+        return np.array(all_weights, dtype=np.float32)
 
     def extract_gru_weights_streamed(self, meta_checkpoints):
         """Stream-load checkpoints and extract GRU weights to avoid storing state_dicts."""
@@ -848,7 +848,7 @@ class TrajectoryVisualizer:
         gru_weights = self.extract_gru_weights_streamed(meta)
 
         # Compute PHATE embeddings with adaptive knn
-    n_samples = len(checkpoint_epochs)
+        n_samples = len(checkpoint_epochs)
         knn, knn_msg = self._resolve_phate_knn(n_samples, default_max=3, requested=phate_knn)
         if knn_msg:
             print(f"  {knn_msg}")
