@@ -706,10 +706,18 @@ def animate_phate_embeddings(
     ymax: Dict[str, float] = {m.name: float("-inf") for m in models}
     cmin = float("inf")
     cmax = float("-inf")
-    # Per-model orientation anchoring based on correlation with the chosen feature
-    # For each model, pick the PHATE axis (0 or 1) that best correlates with the feature
-    # at the first available epoch, and fix its sign to keep correlation positive.
-    orientation: Dict[str, Dict[str, int]] = {}
+    # Per-model orientation anchoring
+    # Strategy:
+    # 1) Prefer a continuous 2D alignment based on the feature direction in the
+    #    embedding (least-squares vector beta s.t. emb @ beta ≈ colour). We use the
+    #    first available epoch as reference (unit vector). For subsequent epochs, we
+    #    rotate the 2D embedding so that its beta aligns with the reference beta.
+    #    This stabilizes arbitrary rotations between epochs (not just axis/sign flips)
+    #    without needing point correspondences.
+    # 2) If the regression direction is ill-defined (low colour variance or singular
+    #    design), fall back to the older axis/sign method based on per-axis correlation
+    #    with the feature, fixed from the first epoch.
+    orientation: Dict[str, Dict[str, np.ndarray | int]] = {}
 
     def _corr(a: np.ndarray, b: np.ndarray) -> float:
         a = a.ravel(); b = b.ravel()
@@ -845,24 +853,62 @@ def animate_phate_embeddings(
                 else:
                     colour = np.zeros(emb.shape[0], dtype=float)
 
-                # Orientation stabilisation: determine and apply model-wise axis/sign choice
-                # Use the first epoch with valid data to anchor which axis correlates best with the feature
+                # Orientation/rotation stabilisation per model
                 orient = orientation.get(model_dir.name)
-                if orient is None and colour.size > 0:
-                    c0 = _corr(emb[:, 0], colour)
-                    c1 = _corr(emb[:, 1], colour)
-                    if abs(c1) > abs(c0):
-                        chosen_axis = 1
-                        chosen_sign = 1 if c1 >= 0 else -1
+                # Try feature-direction alignment first (least-squares beta)
+                def _feature_direction(points: np.ndarray, c: np.ndarray) -> np.ndarray | None:
+                    if points.shape[0] < 3:
+                        return None
+                    c_var = float(np.var(c))
+                    if c_var <= 1e-12:
+                        return None
+                    try:
+                        beta, *_ = np.linalg.lstsq(points, c, rcond=None)
+                    except Exception:
+                        return None
+                    if not np.all(np.isfinite(beta)):
+                        return None
+                    norm = float(np.linalg.norm(beta))
+                    if norm <= 1e-12:
+                        return None
+                    return (beta / norm).astype(float)
+
+                ref_dir = None
+                cur_dir = None
+                if colour.size > 0:
+                    cur_dir = _feature_direction(emb, colour)
+
+                if orient is None:
+                    # Establish reference: prefer feature-direction; else fall back to axis/sign
+                    if cur_dir is not None:
+                        orientation[model_dir.name] = {"ref_dir": cur_dir}
                     else:
-                        chosen_axis = 0
-                        chosen_sign = 1 if c0 >= 0 else -1
-                    orientation[model_dir.name] = {"axis": chosen_axis, "sign": chosen_sign}
+                        c0 = _corr(emb[:, 0], colour)
+                        c1 = _corr(emb[:, 1], colour)
+                        if abs(c1) > abs(c0):
+                            chosen_axis = 1
+                            chosen_sign = 1 if c1 >= 0 else -1
+                        else:
+                            chosen_axis = 0
+                            chosen_sign = 1 if c0 >= 0 else -1
+                        orientation[model_dir.name] = {"axis": chosen_axis, "sign": chosen_sign}
                     orient = orientation[model_dir.name]
-                # Apply orientation if available
-                if orient is not None:
-                    ax_idx = orient["axis"]
-                    sign = orient["sign"]
+
+                # Apply alignment using whichever reference is available
+                if "ref_dir" in orient and cur_dir is not None:
+                    ref_dir = np.asarray(orient["ref_dir"], dtype=float)
+                    # Compute rotation angle to align cur_dir -> ref_dir
+                    # angle = atan2(cross(cur, ref), dot(cur, ref)) (2D cross gives z component)
+                    dot = float(np.clip(np.dot(cur_dir, ref_dir), -1.0, 1.0))
+                    cross_z = float(cur_dir[0] * ref_dir[1] - cur_dir[1] * ref_dir[0])
+                    theta = np.arctan2(cross_z, dot)
+                    cth, sth = float(np.cos(theta)), float(np.sin(theta))
+                    R = np.array([[cth, -sth], [sth, cth]], dtype=float)
+                    # Rotate row-wise: p_rot = p @ R^T
+                    emb = emb @ R.T
+                elif "axis" in orient and "sign" in orient:
+                    ax_idx = int(orient["axis"])  # 0 or 1
+                    sign = int(orient["sign"])     # +/-1
                     x = sign * emb[:, ax_idx]
                     y = emb[:, 1 - ax_idx]
                     emb = np.stack([x, y], axis=1)
