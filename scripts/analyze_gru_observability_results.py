@@ -777,29 +777,49 @@ def animate_phate_embeddings(
     fig, axes = plt.subplots(3, 3, figsize=(15, 14))
     fig.subplots_adjust(right=0.9)
     for ax in axes.flat:
-        ax.axis("off")
+        # Keep axes on, but hide ticks for consistent layout
+        ax.set_xticks([])
+        ax.set_yticks([])
+        for spine in ax.spines.values():
+            spine.set_visible(False)
     scatters: Dict[str, plt.Collection] = {}
 
-    # Draw first frame
+    # Determine which models have any data across all epochs (for clearer messaging)
+    models_with_any_data: Dict[str, bool] = {}
+    for m in models:
+        has_data = np.isfinite(xmin[m.name]) and np.isfinite(xmax[m.name]) and np.isfinite(ymin[m.name]) and np.isfinite(ymax[m.name])
+        models_with_any_data[m.name] = has_data
+
+    # Draw first frame; ensure every panel gets a scatter artist so later frames can update it
     first_epoch = sel_epochs[0]
     norm = plt.Normalize(vmin=cmin, vmax=cmax)
     last_valid_scatter = None
     for idx, model_dir in enumerate(models):
         row, col = divmod(idx, 3)
         ax = axes[row, col]
-        ax.axis("on")
-        ax.set_xticks([]); ax.set_yticks([])
         ax.set_title(model_dir.name, fontsize=9)
         emb, colour = cache.get((first_epoch, model_dir.name), (None, None))
-        if emb is None or colour is None or emb.shape[0] == 0:
-            txt = "Missing" if (first_epoch, model_dir.name) not in cache else "No samples"
-            ax.text(0.5, 0.5, txt, ha="center", va="center")
-            continue
-        sc = ax.scatter(emb[:, 0], emb[:, 1], c=colour, cmap="viridis", s=float(point_size), alpha=float(alpha), norm=norm)
-        ax.set_xlim(xmin[model_dir.name], xmax[model_dir.name])
-        ax.set_ylim(ymin[model_dir.name], ymax[model_dir.name])
-        scatters[model_dir.name] = sc
-        last_valid_scatter = sc
+        # Ensure finite limits; if a model never had data, leave default [0,1] so text is visible
+        if models_with_any_data[model_dir.name]:
+            ax.set_xlim(xmin[model_dir.name], xmax[model_dir.name])
+            ax.set_ylim(ymin[model_dir.name], ymax[model_dir.name])
+        else:
+            ax.set_xlim(0.0, 1.0)
+            ax.set_ylim(0.0, 1.0)
+
+        if emb is None or colour is None or (isinstance(emb, np.ndarray) and emb.size == 0):
+            # Create an empty scatter now so that later frames can populate it
+            sc = ax.scatter([], [], c=[], cmap="viridis", s=float(point_size), alpha=float(alpha), norm=norm)
+            scatters[model_dir.name] = sc
+            # Informative overlay depending on whether the model ever has data
+            if models_with_any_data[model_dir.name]:
+                ax.text(0.5, 0.5, "No samples", ha="center", va="center")
+            else:
+                ax.text(0.5, 0.5, "Missing", ha="center", va="center")
+        else:
+            sc = ax.scatter(emb[:, 0], emb[:, 1], c=colour, cmap="viridis", s=float(point_size), alpha=float(alpha), norm=norm)
+            scatters[model_dir.name] = sc
+            last_valid_scatter = sc
 
     suptitle = fig.suptitle(f"PHATE Embedding — {feature_name} — epoch {first_epoch}", fontsize=14)
     if last_valid_scatter is not None:
@@ -814,24 +834,32 @@ def animate_phate_embeddings(
             row, col = divmod(idx, 3)
             ax = axes[row, col]
             emb, colour = cache.get((epoch, model_dir.name), (None, None))
+            # Ensure a scatter artist exists for every panel
             if model_dir.name not in scatters:
-                # Nothing to update on this axis
-                continue
-            sc = scatters[model_dir.name]
-            if emb is None or colour is None or emb.shape[0] == 0:
-                # Clear axis and put a message
-                ax.cla()
-                ax.set_xticks([]); ax.set_yticks([])
-                ax.set_title(model_dir.name, fontsize=9)
-                ax.text(0.5, 0.5, "Missing", ha="center", va="center")
-                # Recreate empty scatter to retain colorbar binding
                 sc = ax.scatter([], [], c=[], cmap="viridis", s=float(point_size), alpha=float(alpha), norm=norm)
                 scatters[model_dir.name] = sc
-                ax.set_xlim(xmin[model_dir.name], xmax[model_dir.name])
-                ax.set_ylim(ymin[model_dir.name], ymax[model_dir.name])
+            sc = scatters[model_dir.name]
+
+            if emb is None or colour is None or (isinstance(emb, np.ndarray) and emb.size == 0):
+                # Clear points but keep axis limits; refresh overlay text
+                sc.set_offsets(np.empty((0, 2)))
+                sc.set_array(np.array([], dtype=float))
+                # Remove previous texts by clearing and restoring stable formatting
+                ax.cla()
+                ax.set_title(model_dir.name, fontsize=9)
+                ax.set_xticks([]); ax.set_yticks([])
+                for spine in ax.spines.values():
+                    spine.set_visible(False)
+                if models_with_any_data[model_dir.name]:
+                    ax.text(0.5, 0.5, "No samples", ha="center", va="center")
+                else:
+                    ax.text(0.5, 0.5, "Missing", ha="center", va="center")
             else:
+                # Update scatter data
                 sc.set_offsets(emb)
                 sc.set_array(colour)
+            # Apply limits (if any data ever existed for this model)
+            if models_with_any_data[model_dir.name]:
                 ax.set_xlim(xmin[model_dir.name], xmax[model_dir.name])
                 ax.set_ylim(ymin[model_dir.name], ymax[model_dir.name])
         return list(scatters.values())
