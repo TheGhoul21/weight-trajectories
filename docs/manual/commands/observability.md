@@ -103,6 +103,13 @@ Animation format and ffmpeg
   The script will auto-detect it and configure Matplotlib accordingly.
 - You can also force a format via `--embedding-format mp4` or `--embedding-format gif`.
 
+Troubleshooting animation vs PNG differences
+- Static PNGs (phate_epoch_XXX_*.png) are generated with separate per‑epoch PHATE fits. The animation can run in two modes:
+  - separate (default): also fits PHATE per epoch; should now match the static PNG geometry more closely.
+  - joint: pools samples across epochs to stabilize axes; this yields different embeddings than the per‑epoch PNGs by design. Use `--embedding-mode separate` if you want the movie to match the PNGs.
+- Color scale: the animation uses a single global normalization across all frames for a stable colorbar. A single PNG uses that epoch’s range, so colors may look more stretched or compressed in the movie; this is expected. If you need strict visual parity, consider inspecting a frame near the middle of training.
+- Missing panels: when an epoch has no (or too few) samples for a model, that panel shows “No samples” only for that epoch. If a model has no data across any requested epoch, it shows “Missing”. Panels will now populate as soon as data becomes available in later frames.
+
 - Best epoch is derived from `checkpoints/<model>/training_history.json` using `epochs_saved` to index into `val_loss` and select the minimum; final epoch is the maximum saved epoch.
 
 fixed (find fixed points / stability per epoch)
