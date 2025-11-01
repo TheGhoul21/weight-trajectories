@@ -178,9 +178,27 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--embedding-dedup",
-        choices=["auto", "off"],
+        choices=["auto", "soft", "off"],
         default="auto",
-        help="Whether to deduplicate identical hidden states before PHATE (auto recommended to avoid zero-distance issues).",
+        help="Control deduplication of identical hidden states before PHATE: 'auto' keeps unique rows only; 'soft' ensures a minimum retained sample size by re-adding duplicates; 'off' disables dedup.",
+    )
+    parser.add_argument(
+        "--embedding-dedup-min-fraction",
+        type=float,
+        default=0.1,
+        help="When --embedding-dedup=soft, keep at least this fraction of the original samples (0-1).",
+    )
+    parser.add_argument(
+        "--embedding-dedup-min-count",
+        type=int,
+        default=50,
+        help="When --embedding-dedup=soft, keep at least this many samples after dedup.",
+    )
+    parser.add_argument(
+        "--embedding-jitter",
+        type=float,
+        default=0.0,
+        help="Optional small Gaussian noise added when re-adding duplicates in 'soft' mode to avoid exact ties (e.g., 1e-7).",
     )
     parser.add_argument(
         "--skip-probing",
@@ -414,7 +432,14 @@ def load_hidden_samples(
 
 
 def clean_hidden_features(
-    hidden: np.ndarray, features: np.ndarray, *, dedup: bool = True
+    hidden: np.ndarray,
+    features: np.ndarray,
+    *,
+    dedup: bool | str = True,
+    min_fraction: float = 0.1,
+    min_count: int = 50,
+    jitter: float = 0.0,
+    rng: np.random.Generator | None = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     if hidden.size == 0:
         return hidden, features
@@ -429,29 +454,87 @@ def clean_hidden_features(
     if hidden.shape[0] == 0:
         return hidden, features
 
-    # Deduplicate exact duplicate hidden states to avoid zero-distance issues in PHATE
-    if dedup:
+    # Deduplicate identical hidden states to avoid zero-distance issues in PHATE
+    # dedup: True/'auto' => keep uniques only; 'soft' => ensure minimum retained size by re-adding duplicates; False/'off' => no dedup
+    mode = dedup
+    if mode is True:
+        mode = 'auto'
+    if isinstance(mode, str):
+        mode = mode.lower()
+    if mode in ('auto', 'soft'):
         try:
-            _, unique_indices = np.unique(hidden, axis=0, return_index=True)
-            if unique_indices.size < hidden.shape[0]:
-                unique_indices = np.sort(unique_indices)
-                hidden = hidden[unique_indices]
-                features = features[unique_indices]
+            uniq, unique_indices, inverse, counts = np.unique(
+                hidden, axis=0, return_index=True, return_inverse=True, return_counts=True
+            )
+            unique_indices = np.sort(unique_indices)
         except TypeError:
             # Fallback if axis kw not supported (older numpy)
             seen = {}
-            kept_hidden = []
-            kept_features = []
-            for vec, feat in zip(hidden, features):
+            unique_indices = []
+            inverse_list = []
+            for i, vec in enumerate(hidden):
                 key = tuple(vec.tolist())
-                if key in seen:
-                    continue
-                seen[key] = True
-                kept_hidden.append(vec)
-                kept_features.append(feat)
-            if kept_hidden:
-                hidden = np.stack(kept_hidden, axis=0)
-                features = np.stack(kept_features, axis=0)
+                if key not in seen:
+                    seen[key] = len(seen)
+                    unique_indices.append(i)
+                inverse_list.append(seen[key])
+            inverse = np.array(inverse_list, dtype=int)
+            uniq_count = len(seen)
+            counts = np.zeros(uniq_count, dtype=int)
+            for idx in inverse:
+                counts[idx] += 1
+            unique_indices = np.array(sorted(unique_indices), dtype=int)
+
+        # Start with one representative per duplicate group
+        kept_idx = list(unique_indices.tolist())
+        if mode == 'soft':
+            n0 = hidden.shape[0]
+            target = max(3, int(max(min_fraction, 0.0) * n0), int(min_count))
+            if len(kept_idx) < target:
+                # Build pools of extra indices for each group
+                group_to_indices: dict[int, list[int]] = {}
+                for orig_idx, g in enumerate(inverse):
+                    # Skip the first representative; others are extras
+                    if orig_idx == unique_indices[g]:
+                        continue
+                    group_to_indices.setdefault(int(g), []).append(orig_idx)
+                # Round-robin add extras across groups to reach target size
+                extras: list[int] = []
+                # Deterministic order: iterate groups by descending counts, then by id
+                groups_order = [int(g) for g in np.argsort(counts)[::-1].tolist()]
+                ptrs = {g: 0 for g in groups_order}
+                while len(kept_idx) + len(extras) < min(target, n0):
+                    progressed = False
+                    for g in groups_order:
+                        lst = group_to_indices.get(g, [])
+                        p = ptrs[g]
+                        if p < len(lst):
+                            extras.append(lst[p])
+                            ptrs[g] = p + 1
+                            progressed = True
+                            if len(kept_idx) + len(extras) >= min(target, n0):
+                                break
+                    if not progressed:
+                        break  # no more extras available
+                if extras:
+                    add_idx = np.array(extras, dtype=int)
+                    kept_idx = np.array(kept_idx + extras, dtype=int)
+                    # Apply tiny jitter if requested, only to the added duplicates to avoid exact ties
+                    if jitter and jitter > 0.0:
+                        noise = (rng.normal(0.0, jitter, size=(add_idx.size, hidden.shape[1])) if rng is not None
+                                 else np.random.normal(0.0, jitter, size=(add_idx.size, hidden.shape[1])))
+                        # Create a copy to avoid mutating the original array outside this function
+                        hidden = hidden.copy()
+                        hidden[add_idx] = hidden[add_idx] + noise.astype(hidden.dtype, copy=False)
+                else:
+                    kept_idx = np.array(kept_idx, dtype=int)
+            else:
+                kept_idx = np.array(kept_idx, dtype=int)
+        else:
+            kept_idx = np.array(kept_idx, dtype=int)
+
+        hidden = hidden[kept_idx]
+        features = features[kept_idx]
 
     return hidden, features
 
@@ -481,7 +564,10 @@ def plot_phate_embeddings(
     *,
     point_size: float = 12.0,
     alpha: float = 0.8,
-    dedup: bool = True,
+    dedup: bool | str = True,
+    dedup_min_fraction: float = 0.1,
+    dedup_min_count: int = 50,
+    jitter: float = 0.0,
 ) -> None:
     if not HAS_PHATE:
         print("PHATE not installed; skipping embedding plot.")
@@ -518,7 +604,14 @@ def plot_phate_embeddings(
                 ax.text(0.5, 0.5, "No samples", ha="center", va="center")
                 continue
 
-            hidden, features = clean_hidden_features(hidden, features, dedup=dedup)
+            hidden, features = clean_hidden_features(
+                hidden, features,
+                dedup=dedup,
+                min_fraction=dedup_min_fraction,
+                min_count=dedup_min_count,
+                jitter=jitter,
+                rng=rng,
+            )
 
             if hidden.shape[0] < 3:
                 ax.set_title(model_dir.name)
@@ -579,7 +672,10 @@ def animate_phate_embeddings(
     *,
     point_size: float = 12.0,
     alpha: float = 0.8,
-    dedup: bool = True,
+    dedup: bool | str = True,
+    dedup_min_fraction: float = 0.1,
+    dedup_min_count: int = 50,
+    jitter: float = 0.0,
 ) -> None:
     """Generate a 3x3 grid animation of PHATE embeddings over epochs.
 
@@ -647,7 +743,14 @@ def animate_phate_embeddings(
                     continue
                 if hidden.shape[0] == 0:
                     continue
-                hidden, features = clean_hidden_features(hidden, features, dedup=dedup)
+                hidden, features = clean_hidden_features(
+                    hidden, features,
+                    dedup=dedup,
+                    min_fraction=dedup_min_fraction,
+                    min_count=dedup_min_count,
+                    jitter=jitter,
+                    rng=rng,
+                )
                 if hidden.shape[0] < 3:
                     continue
                 if first_feat_names is None:
@@ -716,7 +819,14 @@ def animate_phate_embeddings(
                 if hidden.shape[0] == 0:
                     cache[key] = (None, None)
                     continue
-                hidden, features = clean_hidden_features(hidden, features, dedup=dedup)
+                hidden, features = clean_hidden_features(
+                    hidden, features,
+                    dedup=dedup,
+                    min_fraction=dedup_min_fraction,
+                    min_count=dedup_min_count,
+                    jitter=jitter,
+                    rng=rng,
+                )
                 if hidden.shape[0] < 3:
                     cache[key] = (None, None)
                     continue
@@ -1812,6 +1922,9 @@ def main() -> None:
     print(f"  embedding-ptsize  = {args.embedding_point_size}")
     print(f"  embedding-alpha   = {args.embedding_alpha}")
     print(f"  embedding-dedup   = {args.embedding_dedup}")
+    print(f"  dedup-min-frac    = {args.embedding_dedup_min_fraction}")
+    print(f"  dedup-min-count   = {args.embedding_dedup_min_count}")
+    print(f"  embedding-jitter  = {args.embedding_jitter}")
     print(f"  skip-probing      = {args.skip_probing}")
     print(f"  progress-interval = {args.progress_interval}")
     print(f"  workers           = {args.workers}")
@@ -1832,7 +1945,10 @@ def main() -> None:
             rng=rng,
             point_size=args.embedding_point_size,
             alpha=args.embedding_alpha,
-            dedup=(args.embedding_dedup != "off"),
+            dedup=(args.embedding_dedup if args.embedding_dedup in ("auto", "soft") else False),
+            dedup_min_fraction=args.embedding_dedup_min_fraction,
+            dedup_min_count=args.embedding_dedup_min_count,
+            jitter=args.embedding_jitter,
         )
         if args.embedding_animate:
             # Pass mode and joint-sample cap to the animation function via attributes
@@ -1850,7 +1966,10 @@ def main() -> None:
                 dpi=args.embedding_dpi,
                 point_size=args.embedding_point_size,
                 alpha=args.embedding_alpha,
-                dedup=(args.embedding_dedup != "off"),
+                dedup=(args.embedding_dedup if args.embedding_dedup in ("auto", "soft") else False),
+                dedup_min_fraction=args.embedding_dedup_min_fraction,
+                dedup_min_count=args.embedding_dedup_min_count,
+                jitter=args.embedding_jitter,
             )
     if not args.skip_probing:
         run_probes(
