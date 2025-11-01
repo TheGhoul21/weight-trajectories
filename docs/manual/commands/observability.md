@@ -45,7 +45,13 @@ analyze (plots + linear probes)
   - --embedding-dpi [int, default 150] animation DPI
   - --embedding-point-size [float, default 12.0] marker size for PHATE scatter points
   - --embedding-alpha [float, default 0.8] transparency for PHATE points
-  - --embedding-dedup [{auto, off}, default auto] deduplicate identical hidden states before PHATE to avoid zero-distance artifacts (turn off to visualize all samples; may be numerically fragile)
+  - --embedding-dedup [{auto, soft, off}, default auto]
+      • auto: keep unique rows only (safest numerically)
+      • soft: dedup but re-add duplicates to ensure a minimum retained size
+      • off: no dedup
+  - --embedding-dedup-min-fraction [float, default 0.1] when dedup=soft, keep at least this fraction of original samples
+  - --embedding-dedup-min-count [int, default 50] when dedup=soft, keep at least this many samples
+  - --embedding-jitter [float, default 0.0] tiny Gaussian noise added to re-added duplicates in soft mode to avoid exact ties (e.g., 1e-7)
   - --probe-epochs [list, default 30 60 100]
   - --probe-features [list, default current_player immediate_win_current immediate_win_opponent]
   - --probe-components [list, default gru] (`gru`, `cnn`, or both)

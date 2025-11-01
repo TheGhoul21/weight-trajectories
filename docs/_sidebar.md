@@ -16,6 +16,7 @@
     * [analyze](/manual/commands/analyze)
     * [embeddings](/manual/commands/embeddings)
     * [cka](/manual/commands/cka)
+  * [factorial](/manual/commands/factorial)
     * [trajectory-embedding](/manual/commands/trajectory-embedding)
     * [observability](/manual/commands/observability)
     * [report](/manual/commands/report)

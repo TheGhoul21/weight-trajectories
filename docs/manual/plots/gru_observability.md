@@ -59,7 +59,13 @@ Best vs final epoch handling
    - When `--embedding-animate` is set, also writes **phate_animation_<feature>.mp4** (or .gif). Colorbar is placed to the right to avoid overlap with the last column.
 ### PHATE rendering controls and sparse panels
 
-It’s common for very early epochs to show few points in some panels. This is expected: many hidden states can be identical when the GRU is still untrained. The analyzer deduplicates identical rows by default (`--embedding-dedup auto`) to avoid numerical issues in PHATE with zero distances, which can make early panels appear sparse. If you specifically want to visualize all samples (including duplicates), run with `--embedding-dedup off`.
+It’s common for very early epochs to show few points in some panels. This is expected: many hidden states can be identical when the GRU is still untrained. The analyzer deduplicates identical rows by default (`--embedding-dedup auto`) to avoid numerical issues in PHATE with zero distances, which can make early panels appear sparse.
+
+If dedup becomes too aggressive (e.g., it would drop >90% of samples), use the new “soft dedup” mode which guarantees a minimum retained size:
+- `--embedding-dedup soft --embedding-dedup-min-fraction 0.1 --embedding-dedup-min-count 50`
+   - Keeps at least max(10% of original, 50 samples), re-adding duplicates if needed;
+   - Optional `--embedding-jitter 1e-7` adds tiny noise to those re-added duplicates to break exact ties for PHATE.
+If you specifically want to visualize all samples (including duplicates), run with `--embedding-dedup off` (may be numerically fragile for PHATE).
 
 You can adjust scatter appearance:
 - `--embedding-point-size 24` (larger markers; default 12)

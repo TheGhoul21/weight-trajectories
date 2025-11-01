@@ -25,7 +25,7 @@ Complete pipeline for recurrent network interpretability:
 ### Cross-Model Comparison
 - **[cka](cka.md)** - Representational similarity (CKA heatmaps)
 - **[trajectory-embedding](trajectory-embedding.md)** - Metric-space trajectory plots
-- **[factorial](../plots/factorial_heatmaps.md)** - Factorial analysis across architecture sweep
+- **[factorial](factorial.md)** - Factorial analysis across architecture sweep
 - **[analyze](analyze.md)** - Unified analysis wizard (interactive)
 
 ### Export & Reporting
@@ -57,7 +57,7 @@ Complete pipeline for recurrent network interpretability:
 | [metrics](metrics.md) | Weight/repr statistics | `diagnostics/checkpoint_metrics/*.csv` |
 | [observability](observability.md) | GRU dynamics | `diagnostics/gru_observability/`, `visualizations/gru_observability/` |
 | [cka](cka.md) | Repr similarity | `visualizations/cka_*/` |
-| [factorial](../plots/factorial_heatmaps.md) | Factorial analysis | `visualizations/factorial/factorial_heatmaps.png` |
+| [factorial](factorial.md) | Factorial analysis | `visualizations/factorial/factorial_heatmaps.png` |
 | [analyze](analyze.md) | Interactive wizard | User-guided workflows |
 
 ### Visualization
