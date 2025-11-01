@@ -205,7 +205,12 @@ def plot_representation_grid(metrics_data, output_dir):
                                         label=f'SV{sv_idx}', marker='o', markersize=2, linewidth=1.5)
 
                 mean_top1 = df['repr_top1_ratio'].mean() if 'repr_top1_ratio' in df.columns else np.nan
-                ax.set_title(f'{model_name}\nMean Top-1: {mean_top1:.3f}',
+                mean_total_var = df['repr_total_variance'].mean() if 'repr_total_variance' in df.columns else np.nan
+                if np.isnan(mean_total_var):
+                    title_suffix = f'Mean Top-1: {mean_top1:.3f}'
+                else:
+                    title_suffix = f'Mean Top-1: {mean_top1:.3f} | Mean TotVar: {mean_total_var:.2f}'
+                ax.set_title(f'{model_name}\n{title_suffix}',
                             fontsize=9, fontweight='bold')
                 # Defer legends to a single shared figure-level legend
                 if shared_legend_handles is None or shared_legend_labels is None:

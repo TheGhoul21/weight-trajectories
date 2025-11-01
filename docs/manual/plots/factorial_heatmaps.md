@@ -84,6 +84,7 @@ Final Val Loss   Train/Val Gap     Val Loss Increase
 - Very low → Representation collapse
 - Increases with GRU size (more dimensions available)
 **Expected pattern**: Strong dependence on GRU size, weak on CNN size
+**Computation detail**: Each cell averages the per-epoch `repr_total_variance` values stored in `diagnostics/checkpoint_metrics/*_metrics.csv`. Those per-epoch numbers come from SVDs of GRU hidden states collected on the fixed board batch sampled when running `scripts/compute_checkpoint_metrics.py` (16 boards by default via `--board-count`). Use `representation_grid.png` (see `visualize_unified`) or the metrics CSVs themselves to inspect the full epoch-by-epoch trajectory.
 
 ### 5. Mean Top-1 Ratio
 **What**: Average fraction of representation variance captured by top singular vector
